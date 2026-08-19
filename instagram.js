@@ -238,50 +238,45 @@ async function passe(username, combien, avecCookie) {
 /**
  * Recupere les derniers reels d'un compte.
  *
- * ORDRE : SESSION D'ABORD quand une session valide est disponible.
- * Pourquoi : avec la session, le feed renvoie TOUT (y compris les comptes
- * signales qu'un visiteur deconnecte ne peut pas voir) en UNE SEULE requete.
- * -> beaucoup moins de requetes qu'avant (avant : jusqu'a 7 par compte fermé),
- *    donc beaucoup moins de rate_limit, cycle plus rapide ET plus complet.
- * Si la session meurt, on retombe automatiquement sur la lecture anonyme.
+ * ORDRE : ANONYME D'ABORD. Les lectures publiques sont BEAUCOUP plus tolerees
+ * par Instagram que les requetes authentifiees venant d'un datacenter (une
+ * session utilisee en masse depuis Render se fait rate-limiter tres vite).
+ * La session ne sert donc qu'en DERNIER RECOURS, pour la poignee de comptes
+ * signales qu'un visiteur deconnecte ne peut pas voir. Version allegee : on ne
+ * fait plus de double-essai anonyme, donc un compte ferme coute 2 lectures au
+ * lieu de ~3, ce qui limite le rate_limit.
  *
  * Retourne { reels: [...] } ou { erreur: "..." }.
  */
 async function lire(username, combien) {
-  const sessionDispo = !!cookieBrut() && cookieActif
-
-  // --- Chemin rapide : lecture avec la session (1 requete nominale) ---
-  if (sessionDispo) {
-    let r = await passe(username, combien, true)
-    if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, true) }
-    if (r.reels) { cookieEchecs = 0; lecturesAvecCookie++; return r }
-    if (r.erreur === 'compte_introuvable') return r
-    if (r.erreur === 'cookie_invalide') {
-      // La session est refusee. On tolere quelques refus isoles (Instagram en
-      // fait), mais au-dela on la desactive et on bascule en anonyme.
-      cookieEchecs++
-      if (cookieEchecs >= 5) {
-        cookieActif = false
-        cookieRefuseA = new Date().toISOString()
-        console.warn('[insta] session refusee ' + cookieEchecs + 'x -> bascule anonyme, renouvelle IG_SESSION_COOKIE')
-      }
-      // on retombe sur le chemin anonyme ci-dessous
-    } else {
-      return r // reseau / reponse_vide -> retente au cycle suivant
-    }
-  }
-
-  // --- Chemin anonyme (pas de session, ou session refusee) ---
+  // --- 1. Lecture publique (anonyme) ---
   let r = await passe(username, combien, false)
   if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, false) }
   if (r.reels) return r
   if (r.erreur === 'compte_introuvable') return r
-  if (r.erreur === 'cookie_invalide') {
-    // 401 anonyme : ce compte exige une session connectee, qu'on n'a pas (ou plus).
-    lecturesConnexionRequise++
+  if (r.erreur !== 'cookie_invalide') return r // reseau, http_5xx, reponse_vide
+
+  // --- 2. 401 anonyme : ce compte exige une session connectee ---
+  lecturesConnexionRequise++
+  const sessionDispo = !!cookieBrut() && cookieActif
+  if (!sessionDispo) {
     return { erreur: cookieBrut() ? 'cookie_refuse' : 'connexion_requise' }
   }
-  return r // reseau, http_5xx, reponse_vide -> retente au cycle suivant
+
+  // UNE seule tentative avec la session (jamais en masse : ce serait rate-limite).
+  const rc = await passe(username, combien, true)
+  if (rc.reels) { cookieEchecs = 0; lecturesAvecCookie++; return rc }
+  if (rc.erreur === 'compte_introuvable') return rc
+  if (rc.erreur === 'cookie_invalide') {
+    cookieEchecs++
+    if (cookieEchecs >= 5) {
+      cookieActif = false
+      cookieRefuseA = new Date().toISOString()
+      console.warn('[insta] session refusee ' + cookieEchecs + 'x -> renouvelle IG_SESSION_COOKIE')
+    }
+    return { erreur: 'cookie_refuse' }
+  }
+  return { erreur: rc.erreur || 'connexion_requise' }
 }
 
 // ---------------------------------------------------------------------------

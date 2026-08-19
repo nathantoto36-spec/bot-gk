@@ -113,34 +113,49 @@ function embedReel(username, reel, palier) {
     .setFooter({ text: 'gk:' + reel.code + ':' + palier })
 }
 
-function embedsClassement(classement, horodatage) {
+function embedsClassement(classement, horodatage, bilan) {
   const lignes = classement.map((c, i) => {
     const rang = i + 1
-    const medaille = rang === 1 ? '🥇' : rang === 2 ? '🥈' : rang === 3 ? '🥉' : '`#' + String(rang).padStart(2, ' ') + '`'
+    const medaille = rang === 1 ? '🥇' : rang === 2 ? '🥈' : rang === 3 ? '🥉'
+      : '`#' + String(rang).padStart(3, ' ') + '`'
+    if (!c.reels) {
+      return medaille + ' `@' + c.username + '` — aucun reel sur ' + PALIER_MAX_H + 'h'
+    }
     const delta = c.delta > 0 ? ' (+' + nombre(c.delta) + ')' : ''
     return medaille + ' `@' + c.username + '` — **' + nombre(c.vues) + '** vues' + delta +
            ' · ' + c.reels + ' reel' + (c.reels > 1 ? 's' : '')
   })
 
+  // Decoupage prudent : 3000 caracteres par bloc (la limite Discord est 4096),
+  // et on tronque quand meme au cas ou, pour ne jamais perdre une ligne en silence.
   const blocs = []
   let courant = []
   let taille = 0
   for (const l of lignes) {
-    if (taille + l.length + 1 > 3800) { blocs.push(courant); courant = []; taille = 0 }
+    if (courant.length && taille + l.length + 1 > 3000) { blocs.push(courant); courant = []; taille = 0 }
     courant.push(l); taille += l.length + 1
   }
   if (courant.length) blocs.push(courant)
 
   const total = classement.reduce((s, c) => s + c.vues, 0)
+  const avecReels = classement.filter(c => c.reels > 0).length
+  const sansReel = classement.length - avecReels
+
+  const pied = [
+    classement.length + ' comptes lus',
+    sansReel ? sansReel + ' sans reel' : null,
+    bilan && bilan.illisibles ? bilan.illisibles + ' illisibles' : null,
+    bilan && bilan.cibles ? 'sur ' + bilan.cibles + ' du groupe' : null,
+    nombre(total) + ' vues cumulées sur ' + PALIER_MAX_H + 'h',
+  ].filter(Boolean).join(' · ')
+
   return blocs.map((bloc, i) => new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(i === 0
       ? '🏆 Classement des comptes · ' + horodatage
-      : '🏆 Classement (suite ' + (i + 1) + ')')
-    .setDescription(bloc.join('\n'))
-    .setFooter({ text: i === blocs.length - 1
-      ? classement.length + ' comptes · ' + nombre(total) + ' vues cumulées sur ' + PALIER_MAX_H + 'h'
-      : '…' }))
+      : '🏆 Classement (suite ' + (i + 1) + '/' + blocs.length + ')')
+    .setDescription(bloc.join('\n').slice(0, 4000))
+    .setFooter({ text: i === blocs.length - 1 ? pied : 'suite…' }))
 }
 
 // --- Reconstruction de l'etat depuis l'historique Discord -------------------
@@ -244,16 +259,16 @@ async function cycle(client) {
 
       const recents = res.reels.filter(r => r.posteA && (maintenant - r.posteA) <= PALIER_MAX_H * 3600e3)
       const vuesTotales = recents.reduce((s, r) => s + (r.vues || 0), 0)
-      if (recents.length) {
-        const avant = totauxPrecedents.get(c.username)
-        classement.push({
-          username: c.username,
-          vues: vuesTotales,
-          reels: recents.length,
-          delta: typeof avant === 'number' ? Math.max(0, vuesTotales - avant) : 0,
-        })
-        totauxPrecedents.set(c.username, vuesTotales)
-      }
+      // TOUT compte lu entre au classement, meme sans reel recent : sinon le
+      // classement affiche 140 lignes pour 158 comptes et on ne sait pas pourquoi.
+      const avant = totauxPrecedents.get(c.username)
+      classement.push({
+        username: c.username,
+        vues: vuesTotales,
+        reels: recents.length,
+        delta: typeof avant === 'number' ? Math.max(0, vuesTotales - avant) : 0,
+      })
+      totauxPrecedents.set(c.username, vuesTotales)
 
       for (const r of recents) {
         if (!r.code) continue
@@ -305,7 +320,8 @@ async function cycle(client) {
       const heure = new Date().toLocaleString('fr-FR', {
         timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
       })
-      for (const emb of embedsClassement(classement, heure)) {
+      const bilan = { illisibles: erreursInsta, cibles: comptes.length }
+      for (const emb of embedsClassement(classement, heure, bilan)) {
         try { await salonClassement.send({ embeds: [emb] }) } catch (e) {
           console.error('[discord] classement echoue : ' + e.message)
         }

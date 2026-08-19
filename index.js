@@ -31,6 +31,7 @@ const PALIER_MAX_H = PALIERS[PALIERS.length - 1] || 24
 const PAUSE_INSTA_MS = parseInt(process.env.PAUSE_INSTA_MS || '2500', 10) // entre 2 comptes
 const PAUSE_DISCORD_MS = 1200                                            // entre 2 messages
 const MAX_MESSAGES_PAR_CYCLE = parseInt(process.env.MAX_MESSAGES || '120', 10)
+const REFUS_MAX = parseInt(process.env.REFUS_MAX || '8', 10) // refus Instagram d'affilee avant abandon
 const PERIODE_MS = 60 * 60 * 1000
 
 if (!TOKEN) {
@@ -172,6 +173,11 @@ async function cycle(client) {
       return
     }
     const { ok: comptes, rejetes } = nomsValides(g.items)
+    if (g.groupes) {
+      const inventaire = Object.entries(g.groupes).sort((a, b) => b[1] - a[1])
+        .map(([n, c]) => n + ' (' + c + ')').join(' | ')
+      console.log('[geelark] groupes du compte : ' + inventaire)
+    }
     console.log('[geelark] groupe "' + GROUPE_GEELARK + '" : ' + comptes.length + ' comptes exploitables' +
                 (rejetes.length ? ' (' + rejetes.length + ' noms ignores : ' + rejetes.slice(0, 5).join(', ') + ')' : ''))
     if (!comptes.length) return
@@ -182,17 +188,31 @@ async function cycle(client) {
     const classement = []
     let erreursInsta = 0
     let alerteCookie = null
+    let refusConsecutifs = 0
+    let comptesLus = 0
+    const detailErreurs = {}
 
     for (const c of comptes) {
       const res = await reelsDuCompte(c.username)
       if (res.erreur) {
         erreursInsta++
-        if (res.erreur === 'cookie_invalide' || res.erreur === 'rate_limit') alerteCookie = res.erreur
+        detailErreurs[res.erreur] = (detailErreurs[res.erreur] || 0) + 1
+        if (res.erreur === 'cookie_invalide' || res.erreur === 'rate_limit') {
+          alerteCookie = res.erreur
+          refusConsecutifs++
+        }
         console.warn('[insta] ' + c.username + ' -> ' + res.erreur)
-        if (alerteCookie === 'cookie_invalide') break // inutile de continuer
+        // Un 401 isole arrive (compte prive, hoquet d'Instagram). On n'abandonne
+        // le cycle que si Instagram nous refuse SEUL_MAX fois d'affilee.
+        if (refusConsecutifs >= REFUS_MAX) {
+          console.error('[insta] ' + REFUS_MAX + ' refus consecutifs -> arret du cycle')
+          break
+        }
         await dodo(PAUSE_INSTA_MS)
         continue
       }
+      refusConsecutifs = 0
+      comptesLus++
 
       const recents = res.reels.filter(r => r.posteA && (maintenant - r.posteA) <= PALIER_MAX_H * 3600e3)
       const vuesTotales = recents.reduce((s, r) => s + (r.vues || 0), 0)
@@ -270,10 +290,12 @@ async function cycle(client) {
     dernierCycle = {
       a: new Date().toISOString(),
       comptes: comptes.length,
+      comptesLus,
       feedbacksPostes: postes,
       enAttente: Math.max(0, aPoster.length - postes),
       comptesClasses: classement.length,
       erreursInsta,
+      detailErreurs,
       dureeSec: Math.round((Date.now() - t0) / 1000),
     }
     console.log('[cycle] termine : ' + JSON.stringify(dernierCycle))

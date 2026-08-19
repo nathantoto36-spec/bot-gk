@@ -4,10 +4,15 @@
   "description": "Bot Discord SMS ROTATION - version remise a zero",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=18" },
-  "scripts": { "start": "node index.js" },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "discord.js": "^14.16.3",
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "undici": "^6.19.8"
   }
 }

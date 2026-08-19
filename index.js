@@ -210,11 +210,15 @@ async function cycle(client) {
       for (const r of recents) {
         if (!r.code) continue
         const ageH = (maintenant - r.posteA) / 3600e3
-        // dernier palier franchi et pas encore poste
-        for (const p of PALIERS) {
-          if (ageH >= p && !dejaPoste.has(r.code + ':' + p)) {
-            aPoster.push({ username: c.username, reel: r, palier: p })
-          }
+        // On ne poste QUE le dernier palier franchi, jamais l'historique :
+        // sinon un reel decouvert a 10h d'age declencherait 1h + 2h + 6h d'un coup.
+        const franchis = PALIERS.filter(p => ageH >= p)
+        if (!franchis.length) continue
+        const dernier = franchis[franchis.length - 1]
+        // Les paliers precedents sont consideres comme traites (rattrapage silencieux).
+        for (const p of franchis) if (p !== dernier) dejaPoste.add(r.code + ':' + p)
+        if (!dejaPoste.has(r.code + ':' + dernier)) {
+          aPoster.push({ username: c.username, reel: r, palier: dernier })
         }
       }
       await dodo(PAUSE_INSTA_MS)

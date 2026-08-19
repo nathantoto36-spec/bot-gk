@@ -436,7 +436,9 @@ async function cycle(client) {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] })
 
-client.once('clientReady', async () => {
+const auDemarrage = async () => {
+  if (auDemarrage.fait) return
+  auDemarrage.fait = true
   botStatus = 'READY'
   console.log('[discord] connecte en tant que ' + client.user.tag)
 
@@ -455,7 +457,10 @@ client.once('clientReady', async () => {
   console.log('[bot] paliers : ' + PALIERS.join('h, ') + 'h — cycle toutes les heures')
   cycle(client)
   setInterval(() => cycle(client), PERIODE_MS)
-})
+}
+
+client.once('ready', auDemarrage)
+client.once('clientReady', auDemarrage)
 
 client.on('error', e => console.error('[discord] erreur :', e))
 process.on('unhandledRejection', e => console.error('[unhandled]', e))

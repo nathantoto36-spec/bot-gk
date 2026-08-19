@@ -76,15 +76,40 @@ export async function listAllPhones({ pageSize = 100 } = {}) {
   return { items: all }
 }
 
-// Retourne les profils dont le nom de groupe contient `groupe` (insensible a la casse
-// et aux emojis/coches ajoutes par GeeLark, ex "✔️tkanuya account").
+// Normalise un nom de groupe : minuscules, emojis/coches/ponctuation retires.
+// "✔️tkanuya account" -> "tkanuya account"   |   "tkanuya account 2" -> "tkanuya account 2"
+function normGroupe(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+// Retourne les profils du groupe demande.
+// Par defaut la comparaison est EXACTE (apres normalisation) : "tkanuya account"
+// ne ramene donc PAS "tkanuya account 2". Mettre GEELARK_GROUP_EXACT=false pour
+// revenir a une comparaison "contient".
 export async function listPhonesInGroup(groupe) {
   const r = await listAllPhones()
   if (r.error) return r
-  const needle = String(groupe || '').toLowerCase().trim()
-  if (!needle) return r
-  const items = r.items.filter(p => p.groupName.toLowerCase().includes(needle))
-  return { items, totalCompte: r.items.length }
+
+  // Inventaire des groupes trouves, utile pour les logs.
+  const groupes = {}
+  for (const p of r.items) {
+    const n = p.groupName || '(sans groupe)'
+    groupes[n] = (groupes[n] || 0) + 1
+  }
+
+  const cible = normGroupe(groupe)
+  if (!cible) return { items: r.items, totalCompte: r.items.length, groupes }
+
+  const exact = String(process.env.GEELARK_GROUP_EXACT || 'true') !== 'false'
+  const items = r.items.filter(p => {
+    const n = normGroupe(p.groupName)
+    return exact ? n === cible : n.includes(cible)
+  })
+  return { items, totalCompte: r.items.length, groupes }
 }
 
 // Un nom de profil GeeLark est reputé être le pseudo Instagram.

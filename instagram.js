@@ -238,58 +238,50 @@ async function passe(username, combien, avecCookie) {
 /**
  * Recupere les derniers reels d'un compte.
  *
- * ORDRE VOLONTAIRE : anonyme d'abord, cookie ENSUITE et seulement si besoin.
- * La majorite des comptes se lisent sans etre connecte ; on garde donc la
- * session pour la poignee de comptes qu'Instagram refuse de montrer aux
- * visiteurs deconnectes (comptes recents / signales). Moins la session est
- * utilisee, moins elle risque d'etre invalidee.
+ * ORDRE : SESSION D'ABORD quand une session valide est disponible.
+ * Pourquoi : avec la session, le feed renvoie TOUT (y compris les comptes
+ * signales qu'un visiteur deconnecte ne peut pas voir) en UNE SEULE requete.
+ * -> beaucoup moins de requetes qu'avant (avant : jusqu'a 7 par compte fermé),
+ *    donc beaucoup moins de rate_limit, cycle plus rapide ET plus complet.
+ * Si la session meurt, on retombe automatiquement sur la lecture anonyme.
  *
  * Retourne { reels: [...] } ou { erreur: "..." }.
  */
 async function lire(username, combien) {
-  // --- 1. Lecture publique ---
-  let r = await passe(username, combien, false)
+  const sessionDispo = !!cookieBrut() && cookieActif
 
-  if (r.erreur === 'rate_limit') {
-    await dodo(45000)
-    r = await passe(username, combien, false)
+  // --- Chemin rapide : lecture avec la session (1 requete nominale) ---
+  if (sessionDispo) {
+    let r = await passe(username, combien, true)
+    if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, true) }
+    if (r.reels) { cookieEchecs = 0; lecturesAvecCookie++; return r }
+    if (r.erreur === 'compte_introuvable') return r
+    if (r.erreur === 'cookie_invalide') {
+      // La session est refusee. On tolere quelques refus isoles (Instagram en
+      // fait), mais au-dela on la desactive et on bascule en anonyme.
+      cookieEchecs++
+      if (cookieEchecs >= 5) {
+        cookieActif = false
+        cookieRefuseA = new Date().toISOString()
+        console.warn('[insta] session refusee ' + cookieEchecs + 'x -> bascule anonyme, renouvelle IG_SESSION_COOKIE')
+      }
+      // on retombe sur le chemin anonyme ci-dessous
+    } else {
+      return r // reseau / reponse_vide -> retente au cycle suivant
+    }
   }
+
+  // --- Chemin anonyme (pas de session, ou session refusee) ---
+  let r = await passe(username, combien, false)
+  if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, false) }
   if (r.reels) return r
   if (r.erreur === 'compte_introuvable') return r
-  if (r.erreur !== 'cookie_invalide') return r // reseau, http_5xx, etc.
-
-  // 401 en anonyme : deuxieme essai avec une empreinte totalement differente,
-  // au cas ou ce serait juste un coup de semonce d'Instagram.
-  await dodo(4000 + Math.floor(Math.random() * 4000))
-  const r2 = await passe(username, combien, false)
-  if (r2.reels) return r2
-  if (r2.erreur === 'compte_introuvable') return r2
-
-  // --- 2. Ce compte exige une session connectee ---
-  lecturesConnexionRequise++
-  if (!cookieBrut()) return { erreur: 'connexion_requise' }
-  if (!cookieActif) return { erreur: 'cookie_refuse' }
-
-  const r3 = await passe(username, combien, true)
-  if (r3.reels) {
-    cookieEchecs = 0
-    lecturesAvecCookie++
-    return r3
+  if (r.erreur === 'cookie_invalide') {
+    // 401 anonyme : ce compte exige une session connectee, qu'on n'a pas (ou plus).
+    lecturesConnexionRequise++
+    return { erreur: cookieBrut() ? 'cookie_refuse' : 'connexion_requise' }
   }
-  if (r3.erreur === 'compte_introuvable') return r3
-
-  if (r3.erreur === 'cookie_invalide') {
-    // On ne condamne PAS la session sur un seul refus : Instagram refuse
-    // parfois une requete isolee. Trois refus d'affilee, la, c'est net.
-    cookieEchecs++
-    if (cookieEchecs >= 3) {
-      cookieActif = false
-      cookieRefuseA = new Date().toISOString()
-      console.warn('[insta] session refusee 3 fois de suite -> IG_SESSION_COOKIE a renouveler')
-    }
-    return { erreur: 'cookie_refuse' }
-  }
-  return { erreur: r3.erreur || 'connexion_requise' }
+  return r // reseau, http_5xx, reponse_vide -> retente au cycle suivant
 }
 
 // ---------------------------------------------------------------------------
@@ -411,4 +403,4 @@ export async function reelsDuCompte(username, combien = 12) {
 // Pour le journal de fin de cycle.
 export function pseudosCorriges() {
   return [...resolus.entries()].map(([de, vers]) => de + ' -> ' + vers)
-      }
+}

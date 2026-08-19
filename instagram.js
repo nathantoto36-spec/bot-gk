@@ -248,23 +248,22 @@ async function passe(username, combien, avecCookie) {
  *
  * Retourne { reels: [...] } ou { erreur: "..." }.
  */
-async function lire(username, combien) {
-  // --- 1. Lecture publique (anonyme) ---
-  let r = await passe(username, combien, false)
-  if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, false) }
-  if (r.reels) return r
-  if (r.erreur === 'compte_introuvable') return r
-  if (r.erreur !== 'cookie_invalide') return r // reseau, http_5xx, reponse_vide
 
-  // --- 2. 401 anonyme : ce compte exige une session connectee ---
-  lecturesConnexionRequise++
-  const sessionDispo = !!cookieBrut() && cookieActif
-  if (!sessionDispo) {
-    return { erreur: cookieBrut() ? 'cookie_refuse' : 'connexion_requise' }
-  }
+// Comptes appris comme "fermes" (Instagram exige une session pour les voir).
+// Cette liste PERSISTE entre les cycles : une fois qu'on sait qu'un compte est
+// ferme, on va DIRECTEMENT a la session pour lui (1 requete authentifiee ciblee)
+// au lieu de gaspiller un 401 anonyme a chaque cycle. La session n'est donc
+// utilisee que pour cette poignee de comptes -> pas de rate_limit de masse.
+const comptesFermes = new Set()
 
-  // UNE seule tentative avec la session (jamais en masse : ce serait rate-limite).
+async function lireSession(username, combien) {
   const rc = await passe(username, combien, true)
+  if (rc.erreur === 'rate_limit') { await dodo(45000); return await passe(username, combien, true) }
+  return rc
+}
+
+// Traite le resultat d'une lecture session (compteurs + gestion cookie).
+function apresSession(rc) {
   if (rc.reels) { cookieEchecs = 0; lecturesAvecCookie++; return rc }
   if (rc.erreur === 'compte_introuvable') return rc
   if (rc.erreur === 'cookie_invalide') {
@@ -279,6 +278,34 @@ async function lire(username, combien) {
   return { erreur: rc.erreur || 'connexion_requise' }
 }
 
+async function lire(username, combien) {
+  const sessionDispo = !!cookieBrut() && cookieActif
+
+  // --- 0. Compte DEJA connu comme ferme : session directe (pas de 401 gaspille) ---
+  if (comptesFermes.has(username) && sessionDispo) {
+    const res = apresSession(await lireSession(username, combien))
+    if (res.reels) return res
+    if (res.erreur === 'compte_introuvable') { comptesFermes.delete(username); return res }
+    // Si la session est HS (cookie_refuse) on tente quand meme l'anonyme en secours.
+    if (res.erreur !== 'cookie_refuse') return res
+  }
+
+  // --- 1. Lecture publique (anonyme) ---
+  let r = await passe(username, combien, false)
+  if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, false) }
+  if (r.reels) { comptesFermes.delete(username); return r } // lisible en public -> plus ferme
+  if (r.erreur === 'compte_introuvable') return r
+  if (r.erreur !== 'cookie_invalide') return r // reseau, http_5xx, reponse_vide
+
+  // --- 2. 401 anonyme : ce compte exige une session connectee ---
+  comptesFermes.add(username)
+  lecturesConnexionRequise++
+  if (!sessionDispo) {
+    return { erreur: cookieBrut() ? 'cookie_refuse' : 'connexion_requise' }
+  }
+  return apresSession(await lireSession(username, combien))
+}
+
 // ---------------------------------------------------------------------------
 // Resolution des pseudos : le nom du profil GeeLark n'est pas toujours le vrai
 // pseudo Instagram (compte renomme, point en trop...). Exemple reel :
@@ -288,8 +315,12 @@ async function lire(username, combien) {
 // ---------------------------------------------------------------------------
 
 // Corrections manuelles, prioritaires sur tout le reste.
-// Format : ALIAS_COMPTES="nom_geelark:vrai_pseudo,autre:autre_vrai"
-const ALIAS = {}
+// Valeurs par defaut connues (comptes renommes cote Instagram) + surcharge par
+// la variable ALIAS_COMPTES="nom_geelark:vrai_pseudo,autre:autre_vrai".
+const ALIAS = {
+  'alissa.keit': 'alisskkeit',
+  'joana.keit': 'joanakeit',
+}
 for (const paire of (process.env.ALIAS_COMPTES || '').split(',')) {
   const [de, vers] = paire.split(':').map(s => (s || '').trim().toLowerCase())
   if (de && vers) ALIAS[de] = vers

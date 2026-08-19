@@ -148,7 +148,7 @@ function depuisEdge(node) {
     posteA: (node.taken_at_timestamp ? node.taken_at_timestamp * 1000 : 0),
     vues: node.video_view_count || node.video_play_count || 0,
     likes: (node.edge_liked_by && node.edge_liked_by.count) ||
-           (node.edge_media_preview_like && node.edge_media_preview_like.count) || 0,
+           (node.edge_media_preview_lkke && node.edge_media_preview_like.count) || 0,
     commentaires: (node.edge_media_to_comment && node.edge_media_to_comment.count) || 0,
   }
 }
@@ -158,8 +158,19 @@ function reelsDepuisUser(user) {
   return edges.map(e => depuisEdge(e.node)).filter(Boolean)
 }
 
+function nbPostsUser(user) {
+  return (user && user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.count) || 0
+}
+
 // Une passe complete (3 portes) dans un mode donne.
 // Retourne { reels } | { erreur }
+//
+// REGLE ANTI-"faux 0 reel" : une porte n'est consideree comme faisant foi que
+// si elle renvoie des posts. Un profil qui repond mais dont la liste de posts
+// arrive vide (reponse incomplete d'Instagram, frequente sur les comptes
+// signales lus depuis un datacenter) N'EST PAS traite comme "0 reel" : on
+// essaie la porte suivante, et si tout revient vide on renvoie une erreur douce
+// pour retenter au cycle suivant, au lieu de figer le compte a 0.
 async function passe(username, combien, avecCookie) {
   const u = encodeURIComponent(username)
   let derniere = 'reponse_vide'
@@ -173,8 +184,9 @@ async function passe(username, combien, avecCookie) {
   else if (r1.ok) {
     const j = await r1.json().catch(() => null)
     const items = (j && (j.items || (j.user && j.user.items))) || []
-    const reels = items.map(depuisFeedItem).filter(Boolean)
-    if (reels.length) return { reels }
+    // Le feed a renvoye de VRAIS posts -> source de verite, meme s'il n'y a
+    // aucun reel dedans (compte 100 % photos, legitimement "0 reel").
+    if (items.length) return { reels: items.map(depuisFeedItem).filter(Boolean) }
   } else {
     derniere = versErreur(r1.status)
     if (derniere === 'compte_introuvable') return { erreur: derniere }
@@ -189,7 +201,12 @@ async function passe(username, combien, avecCookie) {
   else if (r2.ok) {
     const j = await r2.json().catch(() => null)
     const user = j && j.data && j.data.user
-    if (user) return { reels: reelsDepuisUser(user) }
+    if (user) {
+      const reels = reelsDepuisUser(user)
+      // On accepte si on a des reels, OU si le profil n'a vraiment aucun post.
+      // Un profil avec des posts mais 0 reel remonte = reponse incomplete.
+      if (reels.length || nbPostsUser(user) === 0) return { reels }
+    }
   } else {
     derniere = versErreur(r2.status)
     if (derniere === 'compte_introuvable') return { erreur: derniere }
@@ -200,12 +217,21 @@ async function passe(username, combien, avecCookie) {
     'https://i.instagram.com/api/v1/users/web_profile_info/?username=' + u,
     username, avecCookie
   )
-  if (r3._reseau) return { erreur: 'reseau: ' + r3._reseau }
-  if (!r3.ok) return { erreur: versErreur(r3.status) }
-  const j3 = await r3.json().catch(() => null)
-  const user3 = j3 && j3.data && j3.data.user
-  if (user3) return { reels: reelsDepuisUser(user3) }
+  if (r3._reseau) derniere = 'reseau: ' + r3._reseau
+  else if (!r3.ok) {
+    derniere = versErreur(r3.status)
+    if (derniere === 'compte_introuvable') return { erreur: derniere }
+  } else {
+    const j3 = await r3.json().catch(() => null)
+    const user3 = j3 && j3.data && j3.data.user
+    if (user3) {
+      const reels = reelsDepuisUser(user3)
+      if (reels.length || nbPostsUser(user3) === 0) return { reels }
+    }
+  }
 
+  // Le profil existe mais aucune porte n'a pu lister ses posts : reponse
+  // incomplete -> erreur douce, on retentera au cycle suivant.
   return { erreur: derniere }
 }
 

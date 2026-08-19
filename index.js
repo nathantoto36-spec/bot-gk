@@ -14,7 +14,7 @@
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js'
 import express from 'express'
 import { listPhonesInGroup, nomsValides } from './geelark.js'
-import { reelsDuCompte } from './instagram.js'
+import { reelsDuCompte, etatCookie, reactiverCookie } from './instagram.js'
 
 // --- Configuration ---------------------------------------------------------
 
@@ -22,6 +22,12 @@ const TOKEN = process.env.DISCORD_BOT_TOKEN
 const SALON_REELS = process.env.SALON_REELS || '1539369975133765703'
 const SALON_CLASSEMENT = process.env.SALON_CLASSEMENT || '1539370313463111720'
 const GROUPE_GEELARK = process.env.GEELARK_GROUP || 'tkanuya account'
+
+// Liste de pseudos Instagram separes par des virgules. Si elle est remplie,
+// GeeLark n'est pas appele du tout (utile si on veut s'en passer completement).
+const COMPTES_MANUELS = (process.env.COMPTES_MANUELS || '')
+  .split(',').map(x => x.trim().toLowerCase().replace(/^@/, ''))
+  .filter(x => /^[a-z0-9._]{1,30}$/.test(x))
 
 // Paliers d'age (en heures) auxquels un reel recoit un message.
 const PALIERS = (process.env.PALIERS || '1,2,6,12,24')
@@ -46,6 +52,7 @@ const dodo = ms => new Promise(r => setTimeout(r, ms))
 let botStatus = 'STARTING'
 let dernierCycle = null
 let cycleEnCours = false
+let derniereAlerte = null        // evite de repeter la meme alerte a chaque cycle
 const dejaPoste = new Set()      // "<code>:<palier>"
 const totauxPrecedents = new Map() // username -> vues totales du cycle precedent
 
@@ -60,6 +67,7 @@ app.get('/health', (_q, s) => s.json({
   cycleEnCours,
   reelsSuivis: dejaPoste.size,
   comptesClasses: totauxPrecedents.size,
+  instagram: etatCookie(),
   uptimeSec: Math.round(process.uptime()),
 }))
 const PORT = process.env.PORT || 3000
@@ -159,6 +167,8 @@ async function cycle(client) {
   if (cycleEnCours) { console.log('[cycle] deja en cours, on saute'); return }
   cycleEnCours = true
   const t0 = Date.now()
+  // Si le cookie a ete renouvele entre-temps, on lui redonne sa chance.
+  reactiverCookie()
   console.log('[cycle] demarrage')
 
   try {
@@ -166,20 +176,31 @@ async function cycle(client) {
     const salonClassement = await client.channels.fetch(SALON_CLASSEMENT).catch(() => null)
     if (!salonReels) { console.error('[cycle] salon reels introuvable'); return }
 
-    // 1. Comptes du groupe GeeLark
-    const g = await listPhonesInGroup(GROUPE_GEELARK)
-    if (g.error) {
-      console.error('[geelark] erreur : ' + g.error + ' ' + (g.msg || g.body || ''))
-      return
+    // 1. Liste des comptes.
+    // Echappatoire : si COMPTES_MANUELS est defini, on n'appelle PAS GeeLark du tout.
+    let comptes, rejetes = [], g = {}
+    if (COMPTES_MANUELS.length) {
+      comptes = COMPTES_MANUELS.map(u => ({ username: u, phoneId: '' }))
+      console.log('[comptes] liste manuelle (COMPTES_MANUELS) : ' + comptes.length + ' comptes, GeeLark non sollicite')
+    } else {
+      g = await listPhonesInGroup(GROUPE_GEELARK)
+      if (g.error) {
+        console.error('[geelark] erreur : ' + g.error + ' ' + (g.msg || g.body || ''))
+        return
+      }
+      const v = nomsValides(g.items)
+      comptes = v.ok
+      rejetes = v.rejetes
     }
-    const { ok: comptes, rejetes } = nomsValides(g.items)
     if (g.groupes) {
       const inventaire = Object.entries(g.groupes).sort((a, b) => b[1] - a[1])
         .map(([n, c]) => n + ' (' + c + ')').join(' | ')
       console.log('[geelark] groupes du compte : ' + inventaire)
     }
-    console.log('[geelark] groupe "' + GROUPE_GEELARK + '" : ' + comptes.length + ' comptes exploitables' +
-                (rejetes.length ? ' (' + rejetes.length + ' noms ignores : ' + rejetes.slice(0, 5).join(', ') + ')' : ''))
+    if (!COMPTES_MANUELS.length) {
+      console.log('[geelark] groupe "' + GROUPE_GEELARK + '" : ' + comptes.length + ' comptes exploitables' +
+                  (rejetes.length ? ' (' + rejetes.length + ' noms ignores : ' + rejetes.slice(0, 5).join(', ') + ')' : ''))
+    }
     if (!comptes.length) return
 
     // 2. Instagram, compte par compte (espace pour ne pas se faire bloquer)
@@ -197,13 +218,15 @@ async function cycle(client) {
       if (res.erreur) {
         erreursInsta++
         detailErreurs[res.erreur] = (detailErreurs[res.erreur] || 0) + 1
-        if (res.erreur === 'cookie_invalide' || res.erreur === 'rate_limit') {
+        // Seul un refus TOTAL (meme en anonyme) ou un rate limit persistant compte
+        // comme un vrai blocage. Un compte inexistant ou vide, non.
+        if (res.erreur === 'refus_ip' || res.erreur === 'rate_limit') {
           alerteCookie = res.erreur
           refusConsecutifs++
+        } else {
+          refusConsecutifs = 0
         }
         console.warn('[insta] ' + c.username + ' -> ' + res.erreur)
-        // Un 401 isole arrive (compte prive, hoquet d'Instagram). On n'abandonne
-        // le cycle que si Instagram nous refuse SEUL_MAX fois d'affilee.
         if (refusConsecutifs >= REFUS_MAX) {
           console.error('[insta] ' + REFUS_MAX + ' refus consecutifs -> arret du cycle')
           break
@@ -279,13 +302,15 @@ async function cycle(client) {
       }
     }
 
-    // 5. Alerte si Instagram nous ferme la porte
-    if (alerteCookie) {
-      const texte = alerteCookie === 'cookie_invalide'
-        ? '⚠️ Instagram refuse la session : la variable `IG_SESSION_COOKIE` est expirée ou invalide. Aucune statistique ne peut être lue tant qu\'elle n\'est pas renouvelée.'
-        : '⚠️ Instagram limite les requêtes (rate limit). Les statistiques de ce cycle sont incomplètes ; espacer davantage (`PAUSE_INSTA_MS`) ou passer par un proxy.'
+    // 5. Alerte SEULEMENT si Instagram nous ferme vraiment la porte, et
+    //    seulement au changement d'etat (pas a chaque cycle).
+    if (alerteCookie && alerteCookie !== derniereAlerte) {
+      const texte = alerteCookie === 'refus_ip'
+        ? '⚠️ Instagram refuse aussi les lectures publiques depuis le serveur (IP bloquée). Il faut passer par un proxy résidentiel pour continuer à lire les stats.'
+        : '⚠️ Instagram limite les requêtes (rate limit) : les statistiques de ce cycle sont incomplètes. Le bot réessaiera au prochain cycle.'
       try { await salonReels.send(texte) } catch { /* tant pis */ }
     }
+    derniereAlerte = alerteCookie
 
     dernierCycle = {
       a: new Date().toISOString(),
@@ -296,6 +321,7 @@ async function cycle(client) {
       comptesClasses: classement.length,
       erreursInsta,
       detailErreurs,
+      instagram: etatCookie(),
       dureeSec: Math.round((Date.now() - t0) / 1000),
     }
     console.log('[cycle] termine : ' + JSON.stringify(dernierCycle))

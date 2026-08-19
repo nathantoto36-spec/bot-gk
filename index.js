@@ -463,6 +463,13 @@ client.once('ready', auDemarrage)
 client.once('clientReady', auDemarrage)
 
 client.on('error', e => console.error('[discord] erreur :', e))
+client.on('shardError', e => console.error('[discord] shardError : ' + (e && e.message)))
+client.on('invalidated', () => console.error('[discord] session invalidee'))
+client.on('debug', m => console.log('[djs] ' + m))
 process.on('unhandledRejection', e => console.error('[unhandled]', e))
 
+console.log('[discord] login... token len=' + (TOKEN ? TOKEN.length : 0))
 client.login(TOKEN)
+  .then(() => console.log('[discord] login() OK'))
+  .catch(e => console.error('[discord] login() ECHEC : ' + (e && e.message)))
+setTimeout(() => { if (botStatus !== 'READY') console.error('[discord] toujours pas READY apres 30s') }, 30000)

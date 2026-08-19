@@ -14,7 +14,7 @@
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js'
 import express from 'express'
 import { listPhonesInGroup, nomsValides } from './geelark.js'
-import { reelsDuCompte, etatCookie, reactiverCookie } from './instagram.js'
+import { reelsDuCompte, etatCookie, reactiverCookie, pseudosCorriges } from './instagram.js'
 
 // --- Configuration ---------------------------------------------------------
 
@@ -404,8 +404,14 @@ async function cycle(client) {
                    ' : ' + besoinConnexion.slice(0, 20).join(', '))
     }
 
+    const corriges = pseudosCorriges()
+    if (corriges.length) {
+      console.log('[insta] pseudos retrouves automatiquement : ' + corriges.join(' | '))
+    }
+
     dernierCycle = {
       a: new Date().toISOString(),
+      pseudosCorriges: corriges,
       comptes: comptes.length,
       comptesLus,
       feedbacksPostes: postes,

@@ -319,14 +319,29 @@ function variantes(username) {
 }
 
 // Recherche Instagram : renvoie les pseudos candidats.
+// Plusieurs formulations, parce que le moteur d'Instagram ne fait pas le lien
+// entre "alissa.keit" et "alisskkeit" ; en revanche il le fait sur "alissa".
 async function candidats(username) {
-  const url = 'https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query=' +
-              encodeURIComponent(username)
-  const r = await appel(url, username, cookieActif && !!cookieBrut())
-  if (r._reseau || !r.ok) return []
-  const j = await r.json().catch(() => null)
-  const users = (j && j.users) || []
-  return users.map(u => (u.user && u.user.username) || '').filter(Boolean)
+  const requetes = [...new Set([
+    username,
+    simplifie(username),
+    username.split(/[._]/)[0],
+  ])].filter(q => q.length >= 3)
+
+  const vus = new Set()
+  for (const q of requetes) {
+    const url = 'https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query=' +
+                encodeURIComponent(q)
+    const r = await appel(url, username, cookieActif && !!cookieBrut())
+    if (r._reseau || !r.ok) continue
+    const j = await r.json().catch(() => null)
+    for (const u of (j && j.users) || []) {
+      const nom = (u.user && u.user.username) || ''
+      if (nom) vus.add(nom)
+    }
+    await dodo(1500)
+  }
+  return [...vus]
 }
 
 // Retourne { username, resultat } si on retrouve le compte, sinon null.

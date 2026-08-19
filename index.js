@@ -153,7 +153,9 @@ function embedsClassement(classement, horodatage, bilan) {
   const pied = [
     classement.length + ' comptes lus',
     sansReel ? sansReel + ' sans reel' : null,
-    bilan && bilan.illisibles ? bilan.illisibles + ' illisibles' : null,
+    bilan && bilan.connexion ? bilan.connexion + ' nécessitent une session Instagram' : null,
+    bilan && (bilan.illisibles - (bilan.connexion || 0)) > 0
+      ? (bilan.illisibles - bilan.connexion) + ' illisibles' : null,
     bilan && bilan.cibles ? 'sur ' + bilan.cibles + ' du groupe' : null,
     nombre(total) + ' vues cumulées sur ' + PALIER_MAX_H + 'h',
   ].filter(Boolean).join(' · ')
@@ -241,6 +243,7 @@ async function cycle(client) {
     let comptesLus = 0
     const detailErreurs = {}
     const echecsDefinitifs = []
+    const besoinConnexion = []   // comptes qu'Instagram cache aux visiteurs deconnectes
 
     // Traite une liste de comptes. Ne s'arrete JAMAIS sur un refus : Instagram
     // refuse par a-coups depuis une IP datacenter, donc on ralentit au lieu
@@ -260,14 +263,20 @@ async function cycle(client) {
         if (res.erreur) {
           detailErreurs[res.erreur] = (detailErreurs[res.erreur] || 0) + 1
           console.warn('[insta] ' + c.username + ' -> ' + res.erreur)
-          if (res.erreur === 'refus_ip' || res.erreur === 'rate_limit') {
+          // Seul un vrai coup de frein d'Instagram merite d'etre rejoue.
+          // Un compte qui exige une session connectee echouera pareil dans
+          // 2 minutes : on ne perd pas 20 minutes de cycle a le retenter.
+          if (res.erreur === 'rate_limit' || String(res.erreur).startsWith('reseau')) {
             refusConsecutifs++
             aRetenter.push(c)
-            // Freinage progressif : 2x la pause a chaque refus, plafonne a 60 s.
+            // Freinage progressif : 2x la pause a chaque refus, plafonne.
             pause = Math.min(pause * 2, PAUSE_MAX_MS)
           } else {
             refusConsecutifs = 0
             echecsDefinitifs.push(c.username)
+            if (res.erreur === 'connexion_requise' || res.erreur === 'cookie_refuse') {
+              besoinConnexion.push(c.username)
+            }
           }
           await dodo(pause)
           continue
@@ -364,7 +373,7 @@ async function cycle(client) {
       const heure = new Date().toLocaleString('fr-FR', {
         timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
       })
-      const bilan = { illisibles: erreursInsta, cibles: comptes.length }
+      const bilan = { illisibles: erreursInsta, connexion: besoinConnexion.length, cibles: comptes.length }
       for (const emb of embedsClassement(classement, heure, bilan)) {
         try { await salonClassement.send({ embeds: [emb] }) } catch (e) {
           console.error('[discord] classement echoue : ' + e.message)
@@ -389,6 +398,11 @@ async function cycle(client) {
       console.warn('[insta] ' + echecsDefinitifs.length + ' comptes illisibles ce cycle : ' +
                    echecsDefinitifs.slice(0, 20).join(', '))
     }
+    if (besoinConnexion.length) {
+      console.warn('[insta] ' + besoinConnexion.length + ' comptes exigent une session connectee' +
+                   (etatCookie().cookiePresent ? ' (IG_SESSION_COOKIE presente mais refusee)' : ' (IG_SESSION_COOKIE absente)') +
+                   ' : ' + besoinConnexion.slice(0, 20).join(', '))
+    }
 
     dernierCycle = {
       a: new Date().toISOString(),
@@ -398,6 +412,7 @@ async function cycle(client) {
       enAttente: Math.max(0, aPoster.length - postes),
       comptesClasses: classement.length,
       erreursInsta,
+      besoinConnexion: besoinConnexion.length,
       detailErreurs,
       instagram: etatCookie(),
       dureeSec: Math.round((Date.now() - t0) / 1000),

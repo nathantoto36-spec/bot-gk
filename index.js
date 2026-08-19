@@ -37,7 +37,12 @@ const PALIER_MAX_H = PALIERS[PALIERS.length - 1] || 24
 const PAUSE_INSTA_MS = parseInt(process.env.PAUSE_INSTA_MS || '2500', 10) // entre 2 comptes
 const PAUSE_DISCORD_MS = 1200                                            // entre 2 messages
 const MAX_MESSAGES_PAR_CYCLE = parseInt(process.env.MAX_MESSAGES || '120', 10)
-const REFUS_MAX = parseInt(process.env.REFUS_MAX || '8', 10) // refus Instagram d'affilee avant abandon
+// Instagram refuse par a-coups depuis une IP de datacenter. On ne s'arrete plus :
+// on ralentit (PAUSE_MAX_MS) puis on rejoue les comptes refuses apres une pause
+// (RETENTATIVES passes, REPOS_MS de repos avant chacune).
+const PAUSE_MAX_MS = parseInt(process.env.PAUSE_MAX_MS || '60000', 10)
+const RETENTATIVES = parseInt(process.env.RETENTATIVES || '3', 10)
+const REPOS_MS = parseInt(process.env.REPOS_MS || '90000', 10)
 // Au tout premier cycle apres un demarrage, on ne rejoue PAS 24 h d'historique :
 // seuls les reels de moins de N heures recoivent un feedback. Sinon le salon
 // recevrait des centaines de messages sur des reels deja vieux.
@@ -228,70 +233,94 @@ async function cycle(client) {
     const aPoster = []
     const classement = []
     let erreursInsta = 0
-    let alerteCookie = null
     let refusConsecutifs = 0
     let comptesLus = 0
     const detailErreurs = {}
+    const echecsDefinitifs = []
 
-    for (const c of comptes) {
-      const res = await reelsDuCompte(c.username)
-      if (res.erreur) {
-        erreursInsta++
-        detailErreurs[res.erreur] = (detailErreurs[res.erreur] || 0) + 1
-        // Seul un refus TOTAL (meme en anonyme) ou un rate limit persistant compte
-        // comme un vrai blocage. Un compte inexistant ou vide, non.
-        if (res.erreur === 'refus_ip' || res.erreur === 'rate_limit') {
-          alerteCookie = res.erreur
-          refusConsecutifs++
-        } else {
-          refusConsecutifs = 0
-        }
-        console.warn('[insta] ' + c.username + ' -> ' + res.erreur)
-        if (refusConsecutifs >= REFUS_MAX) {
-          console.error('[insta] ' + REFUS_MAX + ' refus consecutifs -> arret du cycle')
-          break
-        }
-        await dodo(PAUSE_INSTA_MS)
-        continue
-      }
-      refusConsecutifs = 0
-      comptesLus++
-
-      const recents = res.reels.filter(r => r.posteA && (maintenant - r.posteA) <= PALIER_MAX_H * 3600e3)
-      const vuesTotales = recents.reduce((s, r) => s + (r.vues || 0), 0)
-      // TOUT compte lu entre au classement, meme sans reel recent : sinon le
-      // classement affiche 140 lignes pour 158 comptes et on ne sait pas pourquoi.
-      const avant = totauxPrecedents.get(c.username)
-      classement.push({
-        username: c.username,
-        vues: vuesTotales,
-        reels: recents.length,
-        delta: typeof avant === 'number' ? Math.max(0, vuesTotales - avant) : 0,
-      })
-      totauxPrecedents.set(c.username, vuesTotales)
-
-      for (const r of recents) {
-        if (!r.code) continue
-        const ageH = (maintenant - r.posteA) / 3600e3
-        // On ne poste QUE le dernier palier franchi, jamais l'historique :
-        // sinon un reel decouvert a 10h d'age declencherait 1h + 2h + 6h d'un coup.
-        const franchis = PALIERS.filter(p => ageH >= p)
-        if (!franchis.length) continue
-        // Demarrage a froid : les reels deja vieux sont marques comme traites,
-        // sans message. On repart proprement sur le flux du moment.
-        if (premierCycle && ageH > RATTRAPAGE_MAX_H) {
-          for (const p of PALIERS) dejaPoste.add(r.code + ':' + p)
+    // Traite une liste de comptes. Ne s'arrete JAMAIS sur un refus : Instagram
+    // refuse par a-coups depuis une IP datacenter, donc on ralentit au lieu
+    // d'abandonner (pause doublee a chaque refus, remise a zero des qu'un
+    // compte passe). Retourne les comptes a retenter plus tard.
+    async function traiterComptes(liste, pauseBase) {
+      const aRetenter = []
+      let pause = pauseBase
+      for (const c of liste) {
+        const res = await reelsDuCompte(c.username)
+        if (res.erreur) {
+          detailErreurs[res.erreur] = (detailErreurs[res.erreur] || 0) + 1
+          console.warn('[insta] ' + c.username + ' -> ' + res.erreur)
+          if (res.erreur === 'refus_ip' || res.erreur === 'rate_limit') {
+            refusConsecutifs++
+            aRetenter.push(c)
+            // Freinage progressif : 2x la pause a chaque refus, plafonne a 60 s.
+            pause = Math.min(pause * 2, PAUSE_MAX_MS)
+          } else {
+            refusConsecutifs = 0
+            echecsDefinitifs.push(c.username)
+          }
+          await dodo(pause)
           continue
         }
-        const dernier = franchis[franchis.length - 1]
-        // Les paliers precedents sont consideres comme traites (rattrapage silencieux).
-        for (const p of franchis) if (p !== dernier) dejaPoste.add(r.code + ':' + p)
-        if (!dejaPoste.has(r.code + ':' + dernier)) {
-          aPoster.push({ username: c.username, reel: r, palier: dernier })
+        refusConsecutifs = 0
+        pause = pauseBase
+        comptesLus++
+
+        const recents = res.reels.filter(r => r.posteA && (maintenant - r.posteA) <= PALIER_MAX_H * 3600e3)
+        const vuesTotales = recents.reduce((s, r) => s + (r.vues || 0), 0)
+        // TOUT compte lu entre au classement, meme sans reel recent : sinon le
+        // classement affiche 140 lignes pour 158 comptes et on ne sait pas pourquoi.
+        const avant = totauxPrecedents.get(c.username)
+        classement.push({
+          username: c.username,
+          vues: vuesTotales,
+          reels: recents.length,
+          delta: typeof avant === 'number' ? Math.max(0, vuesTotales - avant) : 0,
+        })
+        totauxPrecedents.set(c.username, vuesTotales)
+
+        for (const r of recents) {
+          if (!r.code) continue
+          const ageH = (maintenant - r.posteA) / 3600e3
+          // On ne poste QUE le dernier palier franchi, jamais l'historique :
+          // sinon un reel decouvert a 10h d'age declencherait 1h + 2h + 6h d'un coup.
+          const franchis = PALIERS.filter(p => ageH >= p)
+          if (!franchis.length) continue
+          // Demarrage a froid : les reels deja vieux sont marques comme traites,
+          // sans message. On repart proprement sur le flux du moment.
+          if (premierCycle && ageH > RATTRAPAGE_MAX_H) {
+            for (const p of PALIERS) dejaPoste.add(r.code + ':' + p)
+            continue
+          }
+          const dernier = franchis[franchis.length - 1]
+          // Les paliers precedents sont consideres comme traites (rattrapage silencieux).
+          for (const p of franchis) if (p !== dernier) dejaPoste.add(r.code + ':' + p)
+          if (!dejaPoste.has(r.code + ':' + dernier)) {
+            aPoster.push({ username: c.username, reel: r, palier: dernier })
+          }
         }
+        await dodo(pause)
       }
-      await dodo(PAUSE_INSTA_MS)
+      return aRetenter
     }
+
+    // Passe 1 : tous les comptes, rythme normal.
+    let restants = await traiterComptes(comptes, PAUSE_INSTA_MS)
+
+    // Passes de rattrapage : Instagram laisse passer au 2e ou 3e essai une fois
+    // qu'on lui a laisse le temps de souffler. C'est ce qui recupere les comptes
+    // qui finissaient "illisibles" a chaque cycle.
+    for (let essai = 1; essai <= RETENTATIVES && restants.length; essai++) {
+      const repos = REPOS_MS * essai
+      console.log('[insta] rattrapage ' + essai + '/' + RETENTATIVES + ' : ' + restants.length +
+                  ' comptes refuses, pause ' + Math.round(repos / 1000) + ' s avant de reessayer')
+      await dodo(repos)
+      restants = await traiterComptes(restants, PAUSE_INSTA_MS * 2)
+    }
+
+    // Ce qui resiste apres tous les essais.
+    for (const c of restants) echecsDefinitifs.push(c.username)
+    erreursInsta = comptes.length - comptesLus
 
     // 3. Messages, du plus ancien palier au plus recent
     aPoster.sort((a, b) => a.reel.posteA - b.reel.posteA || a.palier - b.palier)
@@ -329,15 +358,22 @@ async function cycle(client) {
       }
     }
 
-    // 5. Alerte SEULEMENT si Instagram nous ferme vraiment la porte, et
-    //    seulement au changement d'etat (pas a chaque cycle).
-    if (alerteCookie && alerteCookie !== derniereAlerte) {
-      const texte = alerteCookie === 'refus_ip'
-        ? '⚠️ Instagram refuse aussi les lectures publiques depuis le serveur (IP bloquée). Il faut passer par un proxy résidentiel pour continuer à lire les stats.'
-        : '⚠️ Instagram limite les requêtes (rate limit) : les statistiques de ce cycle sont incomplètes. Le bot réessaiera au prochain cycle.'
-      try { await salonReels.send(texte) } catch { /* tant pis */ }
+    // 5. Alerte : UNIQUEMENT si Instagram nous ferme vraiment la porte, c'est a
+    //    dire si plus rien n'a pu etre lu. Quelques comptes refuses sur 158,
+    //    c'est le fonctionnement normal : ils sont rattrapes au cycle suivant,
+    //    inutile de polluer le salon avec une alerte.
+    const etatBlocage = comptesLus === 0 ? 'bloque' : null
+    if (etatBlocage && etatBlocage !== derniereAlerte) {
+      try {
+        await salonReels.send('⚠️ Instagram refuse toutes les lectures depuis le serveur pour le moment. ' +
+          'Le bot continue d\'essayer à chaque cycle et reprendra automatiquement dès que ça repasse.')
+      } catch { /* tant pis */ }
     }
-    derniereAlerte = alerteCookie
+    derniereAlerte = etatBlocage
+    if (echecsDefinitifs.length) {
+      console.warn('[insta] ' + echecsDefinitifs.length + ' comptes illisibles ce cycle : ' +
+                   echecsDefinitifs.slice(0, 20).join(', '))
+    }
 
     dernierCycle = {
       a: new Date().toISOString(),

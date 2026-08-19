@@ -26,6 +26,9 @@ const UAS = [
 // Etat du cookie, partage par tout le processus.
 let cookieActif = true
 let cookieRefuseA = null
+let cookieEchecs = 0            // refus consecutifs de la session
+let lecturesAvecCookie = 0      // comptes sauves grace a la session
+let lecturesConnexionRequise = 0 // comptes qu'Instagram cache aux deconnectes
 
 // Proxy(s) optionnels. Charges paresseusement : si undici n'est pas dispo ou si
 // aucune URL n'est fournie, on part en direct, exactement comme avant.
@@ -62,7 +65,9 @@ export function etatCookie() {
     cookiePresent: !!cookieBrut(),
     cookieActif: cookieActif && !!cookieBrut(),
     cookieRefuseA,
-    mode: (cookieActif && cookieBrut()) ? 'session' : 'public',
+    mode: cookieBrut() ? (cookieActif ? 'public + session en secours' : 'public seul (session refusee)') : 'public seul (aucune session)',
+    lecturesAvecCookie,
+    lecturesConnexionRequise,
     proxies: PROXIES.length,
   }
 }
@@ -71,6 +76,9 @@ export function etatCookie() {
 // redeploye, on lui redonne sa chance sans attendre.
 export function reactiverCookie() {
   cookieActif = true
+  cookieEchecs = 0
+  lecturesAvecCookie = 0
+  lecturesConnexionRequise = 0
 }
 
 // Empreinte tournante : deux requetes de suite ne se ressemblent pas.
@@ -203,49 +211,57 @@ async function passe(username, combien, avecCookie) {
 
 /**
  * Recupere les derniers reels d'un compte.
- * Bascule automatiquement en lecture publique si le cookie est refuse,
- * et retente avec une autre empreinte si Instagram nous refuse une fois.
+ *
+ * ORDRE VOLONTAIRE : anonyme d'abord, cookie ENSUITE et seulement si besoin.
+ * La majorite des comptes se lisent sans etre connecte ; on garde donc la
+ * session pour la poignee de comptes qu'Instagram refuse de montrer aux
+ * visiteurs deconnectes (comptes recents / signales). Moins la session est
+ * utilisee, moins elle risque d'etre invalidee.
+ *
  * Retourne { reels: [...] } ou { erreur: "..." }.
  */
 export async function reelsDuCompte(username, combien = 12) {
-  const aUnCookie = !!cookieBrut()
+  // --- 1. Lecture publique ---
+  let r = await passe(username, combien, false)
 
-  // Ordre des tentatives : avec cookie (s'il est encore juge valable), puis sans.
-  const modes = (aUnCookie && cookieActif) ? [true, false] : [false]
-
-  let derniere = 'inconnue'
-  for (const avecCookie of modes) {
-    let r = await passe(username, combien, avecCookie)
-
-    // Instagram temporise : on souffle puis on retente, au lieu d'abandonner.
-    if (r.erreur === 'rate_limit') {
-      await dodo(45000)
-      r = await passe(username, combien, avecCookie)
-    }
-
-    if (r.reels) return r
-
-    if (r.erreur === 'cookie_invalide') {
-      if (avecCookie) {
-        // LE point important : le cookie est mort, on ne s'arrete pas pour autant.
-        cookieActif = false
-        cookieRefuseA = new Date().toISOString()
-        console.warn('[insta] cookie refuse par Instagram -> desactive, on bascule en lecture publique')
-        continue // on rejoue le meme compte sans cookie
-      }
-      // 401 sans cookie : Instagram refuse CETTE requete. Souvent temporaire :
-      // on retente une derniere fois avec une empreinte totalement differente.
-      await dodo(6000 + Math.floor(Math.random() * 4000))
-      const r2 = await passe(username, combien, false)
-      if (r2.reels) return r2
-      derniere = r2.erreur === 'cookie_invalide' ? 'refus_ip' : (r2.erreur || 'refus_ip')
-      continue
-    }
-
-    // Inutile de retenter sans cookie : le compte n'existe pas.
-    if (r.erreur === 'compte_introuvable') return r
-
-    derniere = r.erreur
+  if (r.erreur === 'rate_limit') {
+    await dodo(45000)
+    r = await passe(username, combien, false)
   }
-  return { erreur: derniere }
+  if (r.reels) return r
+  if (r.erreur === 'compte_introuvable') return r
+  if (r.erreur !== 'cookie_invalide') return r // reseau, http_5xx, etc.
+
+  // 401 en anonyme : deuxieme essai avec une empreinte totalement differente,
+  // au cas ou ce serait juste un coup de semonce d'Instagram.
+  await dodo(4000 + Math.floor(Math.random() * 4000))
+  const r2 = await passe(username, combien, false)
+  if (r2.reels) return r2
+  if (r2.erreur === 'compte_introuvable') return r2
+
+  // --- 2. Ce compte exige une session connectee ---
+  lecturesConnexionRequise++
+  if (!cookieBrut()) return { erreur: 'connexion_requise' }
+  if (!cookieActif) return { erreur: 'cookie_refuse' }
+
+  const r3 = await passe(username, combien, true)
+  if (r3.reels) {
+    cookieEchecs = 0
+    lecturesAvecCookie++
+    return r3
+  }
+  if (r3.erreur === 'compte_introuvable') return r3
+
+  if (r3.erreur === 'cookie_invalide') {
+    // On ne condamne PAS la session sur un seul refus : Instagram refuse
+    // parfois une requete isolee. Trois refus d'affilee, la, c'est net.
+    cookieEchecs++
+    if (cookieEchecs >= 3) {
+      cookieActif = false
+      cookieRefuseA = new Date().toISOString()
+      console.warn('[insta] session refusee 3 fois de suite -> IG_SESSION_COOKIE a renouveler')
+    }
+    return { erreur: 'cookie_refuse' }
+  }
+  return { erreur: r3.erreur || 'connexion_requise' }
 }

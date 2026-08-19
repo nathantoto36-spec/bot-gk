@@ -148,7 +148,7 @@ function depuisEdge(node) {
     posteA: (node.taken_at_timestamp ? node.taken_at_timestamp * 1000 : 0),
     vues: node.video_view_count || node.video_play_count || 0,
     likes: (node.edge_liked_by && node.edge_liked_by.count) ||
-           (node.edge_media_preview_lkke && node.edge_media_preview_like.count) || 0,
+           (node.edge_media_preview_like && node.edge_media_preview_like.count) || 0,
     commentaires: (node.edge_media_to_comment && node.edge_media_to_comment.count) || 0,
   }
 }
@@ -411,4 +411,4 @@ export async function reelsDuCompte(username, combien = 12) {
 // Pour le journal de fin de cycle.
 export function pseudosCorriges() {
   return [...resolus.entries()].map(([de, vers]) => de + ' -> ' + vers)
-}
+      }

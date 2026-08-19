@@ -4,21 +4,54 @@
 // Principe : le cookie de session est un BONUS, jamais une dependance.
 // Si Instagram refuse le cookie (401), on le desactive et on bascule
 // immediatement en lecture PUBLIQUE (anonyme) pour le reste du cycle.
-// Le bot continue donc de tourner meme avec un IG_SESSION_COOKIE mort.
 //
-// Deux points d'entree Instagram, essayes dans l'ordre :
-//   1. /api/v1/feed/user/<username>/username/  (riche : play_count fiable)
-//   2. /api/v1/users/web_profile_info/         (public : video_view_count)
+// Contre le blocage d'IP datacenter (Render), trois defenses :
+//   1. empreinte tournante  : User-Agent / app-id / plateforme changent a chaque appel
+//   2. plusieurs portes     : 3 points d'entree Instagram essayes dans l'ordre
+//   3. proxy optionnel      : INSTA_PROXY_URL (une ou plusieurs URLs separees par
+//      des virgules) route les appels par un proxy residentiel si un jour on en a un.
 // ---------------------------------------------------------------------------
 
-const UA_WEB = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-const IG_APP_ID = '936619743392459'
+const IG_APP_IDS = ['936619743392459', '1217981644879628']
+
+const UAS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0',
+]
 
 // Etat du cookie, partage par tout le processus.
 let cookieActif = true
 let cookieRefuseA = null
 
+// Proxy(s) optionnels. Charges paresseusement : si undici n'est pas dispo ou si
+// aucune URL n'est fournie, on part en direct, exactement comme avant.
+const PROXIES = (process.env.INSTA_PROXY_URL || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+let agents = null
+let proxyIdx = 0
+
+async function dispatcher() {
+  if (!PROXIES.length) return undefined
+  if (!agents) {
+    try {
+      const { ProxyAgent } = await import('undici')
+      agents = PROXIES.map(u => new ProxyAgent(u))
+      console.log('[insta] ' + agents.length + ' proxy(s) actifs')
+    } catch (e) {
+      console.warn('[insta] proxy inutilisable (' + e.message + ') -> appels directs')
+      agents = []
+    }
+  }
+  if (!agents.length) return undefined
+  return agents[(proxyIdx++) % agents.length]
+}
+
 const dodo = ms => new Promise(r => setTimeout(r, ms))
+const pioche = a => a[Math.floor(Math.random() * a.length)]
 
 function cookieBrut() {
   return process.env.IG_SESSION_COOKIE || ''
@@ -30,6 +63,7 @@ export function etatCookie() {
     cookieActif: cookieActif && !!cookieBrut(),
     cookieRefuseA,
     mode: (cookieActif && cookieBrut()) ? 'session' : 'public',
+    proxies: PROXIES.length,
   }
 }
 
@@ -39,15 +73,27 @@ export function reactiverCookie() {
   cookieActif = true
 }
 
+// Empreinte tournante : deux requetes de suite ne se ressemblent pas.
 function headers(username, avecCookie) {
+  const ua = pioche(UAS)
+  const chrome = /Chrome\/(\d+)/.exec(ua)
   const h = {
-    'User-Agent': UA_WEB,
-    'X-IG-App-ID': IG_APP_ID,
-    'X-ASBD-ID': '129477',
+    'User-Agent': ua,
+    'X-IG-App-ID': pioche(IG_APP_IDS),
+    'X-ASBD-ID': pioche(['129477', '198387', '359341']),
     'X-Requested-With': 'XMLHttpRequest',
     Accept: '*/*',
-    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Language': pioche(['en-US,en;q=0.9', 'fr-FR,fr;q=0.9,en-US;q=0.8', 'en-GB,en;q=0.9']),
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Dest': 'empty',
     Referer: 'https://www.instagram.com/' + username + '/',
+    Origin: 'https://www.instagram.com',
+  }
+  if (chrome) {
+    h['Sec-CH-UA'] = '"Chromium";v="' + chrome[1] + '", "Not-A.Brand";v="24"'
+    h['Sec-CH-UA-Mobile'] = '?0'
+    h['Sec-CH-UA-Platform'] = ua.includes('Mac') ? '"macOS"' : ua.includes('Linux') ? '"Linux"' : '"Windows"'
   }
   const c = cookieBrut()
   if (avecCookie && c) h.Cookie = c
@@ -56,10 +102,21 @@ function headers(username, avecCookie) {
 
 async function appel(url, username, avecCookie) {
   try {
-    return await fetch(url, { headers: headers(username, avecCookie), signal: AbortSignal.timeout(20000) })
+    const opts = { headers: headers(username, avecCookie), signal: AbortSignal.timeout(20000) }
+    const d = await dispatcher()
+    if (d) opts.dispatcher = d
+    return await fetch(url, opts)
   } catch (e) {
     return { _reseau: String((e && e.message) || e) }
   }
+}
+
+// Traduit un status HTTP en erreur metier.
+function versErreur(status) {
+  if (status === 401 || status === 403) return 'cookie_invalide'
+  if (status === 429) return 'rate_limit'
+  if (status === 404) return 'compte_introuvable'
+  return 'http_' + status
 }
 
 // Normalise un media Instagram (forme "app").
@@ -75,7 +132,7 @@ function depuisFeedItem(it) {
   }
 }
 
-// Normalise un node GraphQL (forme "web_profile_info").
+// Normalise un node GraphQL (forme "web_profile_info" / "?__a=1").
 function depuisEdge(node) {
   if (!node || !node.is_video) return null
   return {
@@ -88,48 +145,66 @@ function depuisEdge(node) {
   }
 }
 
-// Une passe complete (strategie 1 puis 2) dans un mode donne.
+function reelsDepuisUser(user) {
+  const edges = (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || []
+  return edges.map(e => depuisEdge(e.node)).filter(Boolean)
+}
+
+// Une passe complete (3 portes) dans un mode donne.
 // Retourne { reels } | { erreur }
 async function passe(username, combien, avecCookie) {
-  // --- Strategie 1 : feed app ---
+  const u = encodeURIComponent(username)
+  let derniere = 'reponse_vide'
+
+  // --- Porte 1 : feed app (la plus riche : play_count fiable) ---
   const r1 = await appel(
-    'https://www.instagram.com/api/v1/feed/user/' + encodeURIComponent(username) + '/username/?count=' + combien,
+    'https://www.instagram.com/api/v1/feed/user/' + u + '/username/?count=' + combien,
     username, avecCookie
   )
-  if (!r1._reseau) {
-    if (r1.status === 401) return { erreur: 'cookie_invalide' }
-    if (r1.status === 429) return { erreur: 'rate_limit' }
-    if (r1.ok) {
-      const j = await r1.json().catch(() => null)
-      const items = (j && (j.items || (j.user && j.user.items))) || []
-      if (items.length) {
-        const reels = items.map(depuisFeedItem).filter(Boolean)
-        if (reels.length) return { reels }
-      }
-    }
+  if (r1._reseau) derniere = 'reseau: ' + r1._reseau
+  else if (r1.ok) {
+    const j = await r1.json().catch(() => null)
+    const items = (j && (j.items || (j.user && j.user.items))) || []
+    const reels = items.map(depuisFeedItem).filter(Boolean)
+    if (reels.length) return { reels }
+  } else {
+    derniere = versErreur(r1.status)
+    if (derniere === 'compte_introuvable') return { erreur: derniere }
   }
 
-  // --- Strategie 2 : profil public ---
+  // --- Porte 2 : profil public sur www ---
   const r2 = await appel(
-    'https://www.instagram.com/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username),
+    'https://www.instagram.com/api/v1/users/web_profile_info/?username=' + u,
     username, avecCookie
   )
-  if (r2._reseau) return { erreur: 'reseau: ' + r2._reseau }
-  if (r2.status === 401) return { erreur: 'cookie_invalide' }
-  if (r2.status === 429) return { erreur: 'rate_limit' }
-  if (r2.status === 404) return { erreur: 'compte_introuvable' }
-  if (!r2.ok) return { erreur: 'http_' + r2.status }
+  if (r2._reseau) derniere = 'reseau: ' + r2._reseau
+  else if (r2.ok) {
+    const j = await r2.json().catch(() => null)
+    const user = j && j.data && j.data.user
+    if (user) return { reels: reelsDepuisUser(user) }
+  } else {
+    derniere = versErreur(r2.status)
+    if (derniere === 'compte_introuvable') return { erreur: derniere }
+  }
 
-  const j = await r2.json().catch(() => null)
-  const user = j && j.data && j.data.user
-  if (!user) return { erreur: 'reponse_vide' }
-  const edges = (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || []
-  return { reels: edges.map(e => depuisEdge(e.node)).filter(Boolean) }
+  // --- Porte 3 : meme donnee servie par i.instagram.com (autre front, autre quota) ---
+  const r3 = await appel(
+    'https://i.instagram.com/api/v1/users/web_profile_info/?username=' + u,
+    username, avecCookie
+  )
+  if (r3._reseau) return { erreur: 'reseau: ' + r3._reseau }
+  if (!r3.ok) return { erreur: versErreur(r3.status) }
+  const j3 = await r3.json().catch(() => null)
+  const user3 = j3 && j3.data && j3.data.user
+  if (user3) return { reels: reelsDepuisUser(user3) }
+
+  return { erreur: derniere }
 }
 
 /**
  * Recupere les derniers reels d'un compte.
- * Bascule automatiquement en lecture publique si le cookie est refuse.
+ * Bascule automatiquement en lecture publique si le cookie est refuse,
+ * et retente avec une autre empreinte si Instagram nous refuse une fois.
  * Retourne { reels: [...] } ou { erreur: "..." }.
  */
 export async function reelsDuCompte(username, combien = 12) {
@@ -142,9 +217,8 @@ export async function reelsDuCompte(username, combien = 12) {
   for (const avecCookie of modes) {
     let r = await passe(username, combien, avecCookie)
 
-    // Instagram temporise : on souffle puis on retente UNE fois, au lieu d'abandonner.
+    // Instagram temporise : on souffle puis on retente, au lieu d'abandonner.
     if (r.erreur === 'rate_limit') {
-      console.warn('[insta] rate limit sur ' + username + ' -> pause 45 s puis nouvel essai')
       await dodo(45000)
       r = await passe(username, combien, avecCookie)
     }
@@ -159,8 +233,12 @@ export async function reelsDuCompte(username, combien = 12) {
         console.warn('[insta] cookie refuse par Instagram -> desactive, on bascule en lecture publique')
         continue // on rejoue le meme compte sans cookie
       }
-      // 401 meme sans cookie : c'est l'IP qui est refusee, pas le cookie.
-      derniere = 'refus_ip'
+      // 401 sans cookie : Instagram refuse CETTE requete. Souvent temporaire :
+      // on retente une derniere fois avec une empreinte totalement differente.
+      await dodo(6000 + Math.floor(Math.random() * 4000))
+      const r2 = await passe(username, combien, false)
+      if (r2.reels) return r2
+      derniere = r2.erreur === 'cookie_invalide' ? 'refus_ip' : (r2.erreur || 'refus_ip')
       continue
     }
 

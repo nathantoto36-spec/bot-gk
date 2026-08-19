@@ -38,6 +38,10 @@ const PAUSE_INSTA_MS = parseInt(process.env.PAUSE_INSTA_MS || '2500', 10) // ent
 const PAUSE_DISCORD_MS = 1200                                            // entre 2 messages
 const MAX_MESSAGES_PAR_CYCLE = parseInt(process.env.MAX_MESSAGES || '120', 10)
 const REFUS_MAX = parseInt(process.env.REFUS_MAX || '8', 10) // refus Instagram d'affilee avant abandon
+// Au tout premier cycle apres un demarrage, on ne rejoue PAS 24 h d'historique :
+// seuls les reels de moins de N heures recoivent un feedback. Sinon le salon
+// recevrait des centaines de messages sur des reels deja vieux.
+const RATTRAPAGE_MAX_H = parseInt(process.env.RATTRAPAGE_MAX_H || '3', 10)
 const PERIODE_MS = 60 * 60 * 1000
 
 if (!TOKEN) {
@@ -53,6 +57,7 @@ let botStatus = 'STARTING'
 let dernierCycle = null
 let cycleEnCours = false
 let derniereAlerte = null        // evite de repeter la meme alerte a chaque cycle
+let premierCycle = true          // demarrage a froid : pas de rattrapage massif
 const dejaPoste = new Set()      // "<code>:<palier>"
 const totauxPrecedents = new Map() // username -> vues totales du cycle precedent
 
@@ -257,6 +262,12 @@ async function cycle(client) {
         // sinon un reel decouvert a 10h d'age declencherait 1h + 2h + 6h d'un coup.
         const franchis = PALIERS.filter(p => ageH >= p)
         if (!franchis.length) continue
+        // Demarrage a froid : les reels deja vieux sont marques comme traites,
+        // sans message. On repart proprement sur le flux du moment.
+        if (premierCycle && ageH > RATTRAPAGE_MAX_H) {
+          for (const p of PALIERS) dejaPoste.add(r.code + ':' + p)
+          continue
+        }
         const dernier = franchis[franchis.length - 1]
         // Les paliers precedents sont consideres comme traites (rattrapage silencieux).
         for (const p of franchis) if (p !== dernier) dejaPoste.add(r.code + ':' + p)
@@ -325,6 +336,7 @@ async function cycle(client) {
       dureeSec: Math.round((Date.now() - t0) / 1000),
     }
     console.log('[cycle] termine : ' + JSON.stringify(dernierCycle))
+    premierCycle = false
   } catch (e) {
     console.error('[cycle] erreur inattendue : ' + (e && e.stack ? e.stack : e))
   } finally {

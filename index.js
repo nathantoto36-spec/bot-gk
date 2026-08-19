@@ -40,9 +40,13 @@ const MAX_MESSAGES_PAR_CYCLE = parseInt(process.env.MAX_MESSAGES || '120', 10)
 // Instagram refuse par a-coups depuis une IP de datacenter. On ne s'arrete plus :
 // on ralentit (PAUSE_MAX_MS) puis on rejoue les comptes refuses apres une pause
 // (RETENTATIVES passes, REPOS_MS de repos avant chacune).
-const PAUSE_MAX_MS = parseInt(process.env.PAUSE_MAX_MS || '60000', 10)
-const RETENTATIVES = parseInt(process.env.RETENTATIVES || '3', 10)
+const PAUSE_MAX_MS = parseInt(process.env.PAUSE_MAX_MS || '20000', 10)
+const RETENTATIVES = parseInt(process.env.RETENTATIVES || '1', 10)
 const REPOS_MS = parseInt(process.env.REPOS_MS || '90000', 10)
+// Budget de temps du cycle : passe ce delai, on arrete de rattraper et on POSTE.
+// Sans ce garde-fou, une poignee de comptes definitivement illisibles (comptes
+// prives, supprimes, bannis) peut retarder les feedbacks de 30 minutes.
+const BUDGET_MS = parseInt(process.env.BUDGET_MS || '1500000', 10) // 25 min
 // Au tout premier cycle apres un demarrage, on ne rejoue PAS 24 h d'historique :
 // seuls les reels de moins de N heures recoivent un feedback. Sinon le salon
 // recevrait des centaines de messages sur des reels deja vieux.
@@ -246,6 +250,12 @@ async function cycle(client) {
       const aRetenter = []
       let pause = pauseBase
       for (const c of liste) {
+        // Garde-fou : on ne laisse jamais un cycle deborder sur le suivant.
+        if (Date.now() - t0 > BUDGET_MS) {
+          console.warn('[insta] budget de temps atteint en cours de passe -> arret de la lecture')
+          aRetenter.push(c)
+          continue
+        }
         const res = await reelsDuCompte(c.username)
         if (res.erreur) {
           detailErreurs[res.erreur] = (detailErreurs[res.erreur] || 0) + 1
@@ -311,6 +321,11 @@ async function cycle(client) {
     // qu'on lui a laisse le temps de souffler. C'est ce qui recupere les comptes
     // qui finissaient "illisibles" a chaque cycle.
     for (let essai = 1; essai <= RETENTATIVES && restants.length; essai++) {
+      if (Date.now() - t0 > BUDGET_MS) {
+        console.warn('[insta] budget de temps atteint -> on poste sans rattraper les ' +
+                     restants.length + ' comptes restants')
+        break
+      }
       const repos = REPOS_MS * essai
       console.log('[insta] rattrapage ' + essai + '/' + RETENTATIVES + ' : ' + restants.length +
                   ' comptes refuses, pause ' + Math.round(repos / 1000) + ' s avant de reessayer')

@@ -220,7 +220,7 @@ async function passe(username, combien, avecCookie) {
  *
  * Retourne { reels: [...] } ou { erreur: "..." }.
  */
-export async function reelsDuCompte(username, combien = 12) {
+async function lire(username, combien) {
   // --- 1. Lecture publique ---
   let r = await passe(username, combien, false)
 
@@ -264,4 +264,110 @@ export async function reelsDuCompte(username, combien = 12) {
     return { erreur: 'cookie_refuse' }
   }
   return { erreur: r3.erreur || 'connexion_requise' }
+}
+
+// ---------------------------------------------------------------------------
+// Resolution des pseudos : le nom du profil GeeLark n'est pas toujours le vrai
+// pseudo Instagram (compte renomme, point en trop...). Exemple reel :
+// GeeLark dit "alissa.keit", Instagram repond 404, et le compte vit sous
+// "alisskkeit". Plutot que de perdre la ligne dans le classement, on retrouve
+// le bon pseudo tout seul et on le garde en memoire pour les cycles suivants.
+// ---------------------------------------------------------------------------
+
+// Corrections manuelles, prioritaires sur tout le reste.
+// Format : ALIAS_COMPTES="nom_geelark:vrai_pseudo,autre:autre_vrai"
+const ALIAS = {}
+for (const paire of (process.env.ALIAS_COMPTES || '').split(',')) {
+  const [de, vers] = paire.split(':').map(s => (s || '').trim().toLowerCase())
+  if (de && vers) ALIAS[de] = vers
+}
+
+const resolus = new Map() // nom GeeLark -> vrai pseudo Instagram
+
+const simplifie = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+// Distance de Levenshtein, pour ne jamais accepter un homonyme lointain.
+function distance(a, b) {
+  const m = a.length, n = b.length
+  if (!m) return n
+  if (!n) return m
+  let prec = Array.from({ length: n + 1 }, (_, j) => j)
+  for (let i = 1; i <= m; i++) {
+    const cour = [i]
+    for (let j = 1; j <= n; j++) {
+      cour[j] = Math.min(
+        prec[j] + 1,
+        cour[j - 1] + 1,
+        prec[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      )
+    }
+    prec = cour
+  }
+  return prec[n]
+}
+
+// Variantes evidentes, testees avant toute recherche : "joana.keit" -> "joanakeit".
+function variantes(username) {
+  const v = new Set([
+    username.replace(/\./g, ''),
+    username.replace(/_/g, ''),
+    username.replace(/\./g, '_'),
+    username.replace(/_/g, '.'),
+  ])
+  v.delete(username)
+  return [...v]
+}
+
+// Recherche Instagram : renvoie les pseudos candidats.
+async function candidats(username) {
+  const url = 'https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query=' +
+              encodeURIComponent(username)
+  const r = await appel(url, username, cookieActif && !!cookieBrut())
+  if (r._reseau || !r.ok) return []
+  const j = await r.json().catch(() => null)
+  const users = (j && j.users) || []
+  return users.map(u => (u.user && u.user.username) || '').filter(Boolean)
+}
+
+// Retourne { username, resultat } si on retrouve le compte, sinon null.
+async function retrouver(username, combien) {
+  const attendu = simplifie(username)
+
+  for (const v of variantes(username)) {
+    const r = await lire(v, combien)
+    if (r.reels) return { username: v, resultat: r }
+  }
+
+  for (const c of await candidats(username)) {
+    // Garde-fou : on n'accepte qu'un pseudo tres proche du nom attendu.
+    // Sans ca, une recherche "lea" ramenerait le compte de n'importe qui.
+    if (distance(attendu, simplifie(c)) > 2) continue
+    const r = await lire(c, combien)
+    if (r.reels) return { username: c, resultat: r }
+  }
+  return null
+}
+
+/**
+ * Point d'entree public : lit les reels du compte, en retrouvant le vrai
+ * pseudo Instagram si le nom du profil GeeLark ne correspond plus.
+ */
+export async function reelsDuCompte(username, combien = 12) {
+  const cible = resolus.get(username) || ALIAS[username] || username
+
+  const r = await lire(cible, combien)
+  if (r.erreur !== 'compte_introuvable') return r
+
+  const trouve = await retrouver(username, combien)
+  if (!trouve) return { erreur: 'compte_introuvable' }
+
+  resolus.set(username, trouve.username)
+  console.warn('[insta] "' + username + '" introuvable -> lu sous "' + trouve.username +
+               '" (pense a renommer le profil GeeLark)')
+  return trouve.resultat
+}
+
+// Pour le journal de fin de cycle.
+export function pseudosCorriges() {
+  return [...resolus.entries()].map(([de, vers]) => de + ' -> ' + vers)
 }

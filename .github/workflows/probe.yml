@@ -1,0 +1,25 @@
+name: probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discord REST gateway
+        run: |
+          echo "== Discord /api/v10/gateway =="
+          code=$(curl -s -o body.txt -w "%{http_code}" https://discord.com/api/v10/gateway)
+          echo "HTTP $code"
+          head -c 400 body.txt; echo
+      - name: Instagram web_profile_info
+        run: |
+          echo "== IG web_profile_info =="
+          code=$(curl -s -o ig.txt -w "%{http_code}" -H "X-IG-App-ID: 936619743392459" -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "https://www.instagram.com/api/v1/users/web_profile_info/?username=instagram")
+          echo "HTTP $code"
+          head -c 400 ig.txt; echo
+      - name: Instagram feed endpoint
+        run: |
+          echo "== IG feed api =="
+          code=$(curl -s -o feed.txt -w "%{http_code}" -H "X-IG-App-ID: 936619743392459" -H "User-Agent: Mozilla/5.0" "https://i.instagram.com/api/v1/feed/user/instagram/username/?count=3")
+          echo "HTTP $code"
+          head -c 400 feed.txt; echo

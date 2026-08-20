@@ -282,11 +282,15 @@ async function cycle() {
     g = await listPhonesInGroup(GROUPE_GEELARK)
     if (g.error) {
       console.error('[geelark] erreur : ' + g.error + ' ' + (g.msg || g.body || ''))
-      return
+      const noms = [...totauxPrecedents.keys()]
+      if (!noms.length) { console.error('[geelark] pas de repli (aucun classement precedent)'); return }
+      comptes = noms.map(u => ({ username: u, phoneId: '' }))
+      console.log('[geelark] REPLI : ' + comptes.length + ' comptes repris du dernier classement Discord')
+    } else {
+      const v = nomsValides(g.items)
+      comptes = v.ok
+      rejetes = v.rejetes
     }
-    const v = nomsValides(g.items)
-    comptes = v.ok
-    rejetes = v.rejetes
   }
   if (g.groupes) {
     const inventaire = Object.entries(g.groupes).sort((a, b) => b[1] - a[1])

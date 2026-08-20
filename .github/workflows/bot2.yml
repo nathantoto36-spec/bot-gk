@@ -1,0 +1,29 @@
+name: bot2
+on:
+  schedule:
+    - cron: '22 * * * *'
+  workflow_dispatch:
+concurrency:
+  group: bot2-cycle
+  cancel-in-progress: false
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+      - name: Cycle horaire (groupe 2)
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
+          ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
+          GEELARK_GROUP: 'tkanuya account 2'
+          SALON_REELS: '1539514777758470224'
+          SALON_CLASSEMENT: '1539514911728861244'
+        run: node index.js

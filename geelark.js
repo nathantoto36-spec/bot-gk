@@ -33,6 +33,7 @@ async function post(pathname, body = {}, timeoutMs = 15000) {
   const DEF = 'RTJBTN1C5Y05AAYU68G4XFDQSG'
   const paires = [[APP_ID, API_KEY], [DEF, API_KEY], [API_KEY, APP_ID], [DEF, APP_ID]]
     .filter((p, i, a) => p[0] && p[1] && a.findIndex(q => q[0] === p[0] && q[1] === p[1]) === i)
+  console.log('[geelark] diag: appIdLen=' + APP_ID.length + ' apiKeyLen=' + API_KEY.length + ' candidats=' + paires.length)
   let dernier = null
   for (let i = 0; i < paires.length; i++) {
     const headers = authHeaders(paires[i][0], paires[i][1])
@@ -53,7 +54,7 @@ async function post(pathname, body = {}, timeoutMs = 15000) {
     if (!r.ok) { dernier = { error: 'http_' + r.status, status: r.status, body: text.slice(0, 300) }; continue }
     if (json && typeof json.code !== 'undefined' && Number(json.code) !== 0) {
       dernier = { error: 'api_code_' + json.code, msg: json.msg }
-      if (Number(json.code) === 40003 && i === 0) continue
+      if (Number(json.code) === 40003 && i < paires.length - 1) continue
       return dernier
     }
     return json

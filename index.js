@@ -41,7 +41,7 @@ const RETENTATIVES = parseInt(process.env.RETENTATIVES || '1', 10)
 // Budget de temps : passe ce delai on POSTE ce qu'on a (garde-fou minutes Actions).
 const BUDGET_MS = parseInt(process.env.BUDGET_MS || '480000', 10) // 8 min
 // Combien de pages d'historique relire (100 msg/page) pour reconstruire l'etat.
-const PAGES_HISTO = parseInt(process.env.PAGES_HISTO || '6', 10)
+const PAGES_HISTO = parseInt(process.env.PAGES_HISTO || '15', 10)
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")

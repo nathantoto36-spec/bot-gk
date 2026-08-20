@@ -9,7 +9,7 @@ concurrency:
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 22
+    timeout-minutes: 32
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,5 +26,7 @@ jobs:
           GEELARK_GROUP: 'tkanuya account 2'
           SALON_REELS: '1539514777758470224'
           SALON_CLASSEMENT: '1539514911728861244'
-          BUDGET_MS: '1080000'
+          BUDGET_MS: '1500000'
+          INSTA_CONCURRENCE: '8'
+          MAX_MESSAGES: '150'
         run: node index.js

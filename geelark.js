@@ -7,7 +7,7 @@
 import crypto from 'node:crypto'
 
 const BASE = (process.env.GEELARK_BASE_URL || 'https://openapi.geelark.com').replace(/\/+$/, '')
-const APP_ID = process.env.GEELARK_APP_ID || 'RTJBTN1C5Y05AAYU68G4XFDQSG'
+const APP_ID = (process.env.GEELARK_APP_ID || 'RTJBTN1C5Y05AAYU68G4XFDQSG').trim()
 
 function nonce(len = 6) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
@@ -17,7 +17,7 @@ function nonce(len = 6) {
 }
 
 function authHeaders() {
-  const apiKey = process.env.GEELARK_API_KEY
+  const apiKey = (process.env.GEELARK_API_KEY || '').trim()
   if (!apiKey) return { _error: 'GEELARK_API_KEY absente' }
   const ts = String(Date.now())
   const n = nonce(6)
@@ -123,4 +123,4 @@ export function nomsValides(items) {
     else rejetes.push(p.name)
   }
   return { ok, rejetes }
-}
+  }

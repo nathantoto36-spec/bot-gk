@@ -37,7 +37,7 @@ const MAX_MESSAGES_PAR_CYCLE = parseInt(process.env.MAX_MESSAGES || '120', 10)
 // faire bloquer comme sur Render. On garde une retentative pour les a-coups.
 const CONCURRENCE = parseInt(process.env.INSTA_CONCURRENCE || '5', 10)
 const REPOS_MS = parseInt(process.env.REPOS_MS || '15000', 10)
-const RETENTATIVES = parseInt(process.env.RETENTATIVES || '3', 10)
+const RETENTATIVES = parseInt(process.env.RETENTATIVES || '1', 10)
 // Budget de temps : passe ce delai on POSTE ce qu'on a (garde-fou minutes Actions).
 const BUDGET_MS = parseInt(process.env.BUDGET_MS || '480000', 10) // 8 min
 // Combien de pages d'historique relire (100 msg/page) pour reconstruire l'etat.

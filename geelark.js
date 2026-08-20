@@ -30,7 +30,9 @@ const API_KEY = (process.env.GEELARK_API_KEY || '').trim()
 
 async function post(pathname, body = {}, timeoutMs = 15000) {
   if (!API_KEY) return { error: 'GEELARK_API_KEY absente' }
-  const paires = [[APP_ID, API_KEY], [API_KEY, APP_ID]]
+  const DEF = 'RTJBTN1C5Y05AAYU68G4XFDQSG'
+  const paires = [[APP_ID, API_KEY], [DEF, API_KEY], [API_KEY, APP_ID], [DEF, APP_ID]]
+    .filter((p, i, a) => p[0] && p[1] && a.findIndex(q => q[0] === p[0] && q[1] === p[1]) === i)
   let dernier = null
   for (let i = 0; i < paires.length; i++) {
     const headers = authHeaders(paires[i][0], paires[i][1])
@@ -130,4 +132,4 @@ export function nomsValides(items) {
     else rejetes.push(p.name)
   }
   return { ok, rejetes }
-          }
+      }

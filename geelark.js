@@ -18,8 +18,8 @@ function nonce(len = 6) {
 
 function authHeaders(appId, apiKey) {
   const ts = String(Date.now())
-  const n = nonce(6)
   const traceId = crypto.randomUUID()
+  const n = traceId.slice(0, 6)
   const sign = crypto.createHash('sha256')
     .update(appId + traceId + ts + n + apiKey)
     .digest('hex').toUpperCase()
@@ -132,4 +132,4 @@ export function nomsValides(items) {
     else rejetes.push(p.name)
   }
   return { ok, rejetes }
-      }
+}

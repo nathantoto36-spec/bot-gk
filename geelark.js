@@ -16,40 +16,47 @@ function nonce(len = 6) {
   return s
 }
 
-function authHeaders() {
-  const apiKey = (process.env.GEELARK_API_KEY || '').trim()
-  if (!apiKey) return { _error: 'GEELARK_API_KEY absente' }
+function authHeaders(appId, apiKey) {
   const ts = String(Date.now())
   const n = nonce(6)
   const traceId = crypto.randomUUID()
   const sign = crypto.createHash('sha256')
-    .update(APP_ID + traceId + ts + n + apiKey)
+    .update(appId + traceId + ts + n + apiKey)
     .digest('hex').toUpperCase()
-  return { 'Content-Type': 'application/json', appId: APP_ID, traceId, ts, nonce: n, sign }
+  return { 'Content-Type': 'application/json', appId, traceId, ts, nonce: n, sign }
 }
 
+const API_KEY = (process.env.GEELARK_API_KEY || '').trim()
+
 async function post(pathname, body = {}, timeoutMs = 15000) {
-  const headers = authHeaders()
-  if (headers._error) return { error: headers._error }
-  let r
-  try {
-    r = await fetch(BASE + pathname, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-  } catch (e) {
-    return { error: 'fetch_failed', body: String((e && e.message) || e) }
+  if (!API_KEY) return { error: 'GEELARK_API_KEY absente' }
+  const paires = [[APP_ID, API_KEY], [API_KEY, APP_ID]]
+  let dernier = null
+  for (let i = 0; i < paires.length; i++) {
+    const headers = authHeaders(paires[i][0], paires[i][1])
+    let r
+    try {
+      r = await fetch(BASE + pathname, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+    } catch (e) {
+      return { error: 'fetch_failed', body: String((e && e.message) || e) }
+    }
+    const text = await r.text().catch(() => '')
+    let json = null
+    try { json = text ? JSON.parse(text) : null } catch { /* pas du json */ }
+    if (!r.ok) { dernier = { error: 'http_' + r.status, status: r.status, body: text.slice(0, 300) }; continue }
+    if (json && typeof json.code !== 'undefined' && Number(json.code) !== 0) {
+      dernier = { error: 'api_code_' + json.code, msg: json.msg }
+      if (Number(json.code) === 40003 && i === 0) continue
+      return dernier
+    }
+    return json
   }
-  const text = await r.text().catch(() => '')
-  let json = null
-  try { json = text ? JSON.parse(text) : null } catch { /* pas du json */ }
-  if (!r.ok) return { error: 'http_' + r.status, status: r.status, body: text.slice(0, 300) }
-  if (json && typeof json.code !== 'undefined' && Number(json.code) !== 0) {
-    return { error: 'api_code_' + json.code, msg: json.msg }
-  }
-  return json
+  return dernier
 }
 
 function normalize(p = {}) {
@@ -123,4 +130,4 @@ export function nomsValides(items) {
     else rejetes.push(p.name)
   }
   return { ok, rejetes }
-  }
+          }

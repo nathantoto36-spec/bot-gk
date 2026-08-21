@@ -277,7 +277,7 @@ const lireCompte = async (c) => {
   // on retente le pseudo + underscore et on adopte si cette version a un reel recent.
   if (res && res.reels && !aUnRecent(res) && !/[._]$/.test(c.username)) {
     const alt = await reelsDuCompte(c.username + '_').catch(() => null)
-    if (alt && aUnRecent(alt)) { res = alt; c.username = c.username + '_' }
+    if (alt && aUnRecent(alt)) { console.log('[fix-underscore] ' + c.username + ' -> ' + c.username + '_'); res = alt; c.username = c.username + '_' }
   }
   return { c, res }
 }
@@ -441,6 +441,9 @@ async function cycle() {
       })
     } catch { /* tant pis */ }
   }
+
+  const sansReelNoms = classement.filter(x => x.reels === 0).map(x => x.username)
+  if (sansReelNoms.length) console.log('[cycle] comptes SANS reel recent (' + sansReelNoms.length + ') : ' + sansReelNoms.join(', '))
 
   if (echecsDefinitifs.length) {
     console.warn('[insta] ' + echecsDefinitifs.length + ' comptes illisibles ce cycle : ' +

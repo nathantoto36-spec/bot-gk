@@ -742,6 +742,7 @@ async function cycle() {
       const lusOk = new Set(classement.map(function (x) { return x.username }))
       const errParU = new Map(illisiblesDetail.map(function (it) { return [it.u, it.err] }))
       const introuvables = []
+      const nouveauxIllisibles = []
       for (const c of comptes) {
         const u = c.username
         const err = errParU.get(u)
@@ -749,7 +750,7 @@ async function cycle() {
         if (err === 'compte_introuvable') { introuvables.push(u); banStreaks.delete(u); continue }
         if (err === 'connexion_requise' || err === 'cookie_refuse') { banStreaks.delete(u); continue }
         if (err === 'budget') { continue }
-        if (err) { banStreaks.set(u, Math.min((banStreaks.get(u) || 0) + 1, SEUIL_BAN_CYCLES + 5)) }
+        if (err) { const dejaVu = banStreaks.has(u); banStreaks.set(u, Math.min((banStreaks.get(u) || 0) + 1, SEUIL_BAN_CYCLES + 5)); if (!dejaVu) nouveauxIllisibles.push(u) }
       }
       const setComptes = new Set(comptes.map(function (c) { return c.username }))
       const etatCompteurs = {}
@@ -776,6 +777,19 @@ async function cycle() {
         if (banStateMsgId) { await discord('PATCH', '/channels/' + SALON_BANS + '/messages/' + banStateMsgId, { embeds: [etatEmbed] }) }
         else { const mm = await poster(SALON_BANS, { embeds: [etatEmbed] }); if (mm && mm.id) banStateMsgId = mm.id }
       } catch (e) { console.error('[bans] etat non sauvegarde : ' + e.message) }
+
+      // 5c-bis. Introduire chaque NOUVEAU compte illisible (un message par compte).
+      if (nouveauxIllisibles.length) {
+        const hNouv = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        const lotN = nouveauxIllisibles.slice(0, 15)
+        let cn = 0
+        for (const u of lotN) {
+          const embN = { color: 0xf39c12, title: '🔎 Nouveau compte illisible · @' + u, description: '`@' + u + '` vient de devenir illisible sur Instagram.' + String.fromCharCode(10) + '🏷️ Groupe : **' + GROUPE_GEELARK + '**' + String.fromCharCode(10) + '⏳ En surveillance (1/' + SEUIL_BAN_CYCLES + ' cycles avant « ban probable »).', footer: { text: hNouv } }
+          try { await poster(SALON_BANS, { embeds: [embN] }); cn++ } catch (e) { console.error('[bans-new] envoi echoue (' + u + ') : ' + e.message) }
+          await dodo(PAUSE_DISCORD_MS)
+        }
+        console.log('[bans-new] ' + cn + ' nouveau(x) compte(s) illisible(s) introduit(s)')
+      }
     } catch (e) { console.error('[bans] post echoue : ' + e.message) }
   }
 

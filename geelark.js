@@ -111,6 +111,19 @@ export async function listPhonesInGroup(groupe) {
     groupes[n] = (groupes[n] || 0) + 1
   }
 
+  // Mouchard : affiche le groupe EXACT renvoye par GeeLark pour des comptes
+  // surveilles (GEELARK_WATCH="jalinewayness,autre"). Prouve qu'un compte est
+  // filtre selon son vrai groupe GeeLark, pas selon un tag.
+  const watch = (process.env.GEELARK_WATCH || '').split(',').map(s => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
+  if (watch.length) {
+    for (const p of r.items) {
+      const nom = String(p.name || '').toLowerCase().replace(/^@/, '')
+      if (watch.includes(nom)) {
+        console.log('[geelark] WATCH "' + p.name + '" -> groupe GeeLark="' + p.groupName + '" (normalise: "' + normGroupe(p.groupName) + '")')
+      }
+    }
+  }
+
   const cible = normGroupe(groupe)
   if (!cible) return { items: r.items, totalCompte: r.items.length, groupes }
 

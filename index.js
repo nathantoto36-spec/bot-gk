@@ -49,6 +49,10 @@ const IG_WATCH = (process.env.IG_WATCH || '').split(',').map(x => x.trim().toLow
 const SALON_ILLISIBLE = process.env.SALON_ILLISIBLE || ''
 const SALON_ILLISIBLE_NOM = process.env.SALON_ILLISIBLE_NOM || 'comptes-illisible'
 const SALON_BANS = process.env.SALON_BANS || ''
+// Salon dedie aux reels encore a 0 vue apres ZERO_PALIER_H heures (defaut 1h).
+const SALON_ZERO = process.env.SALON_ZERO || ''
+const ZERO_PALIER_H = parseInt(process.env.ZERO_PALIER_H || '1', 10)
+const zeroVus = new Set()          // reels deja signales a 0 vue (par code)
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -167,6 +171,21 @@ function verdict(vues) {
   return { emoji: '🌱', label: 'DEMARRAGE', couleur: 0x95a5a6, conseil: 'Ca demarre doucement. Pour le prochain : hook plus fort des la 1re seconde, son tendance, et poste a ta meilleure heure.' }
 }
 
+function embedZeroVue(username, reel) {
+  const ageH = reel.posteA ? ((Date.now() - reel.posteA) / 3600e3).toFixed(1) : '?'
+  const lien = reel.code ? 'https://www.instagram.com/reel/' + reel.code + '/' : null
+  const lignes = []
+  if (lien) lignes.push('[Voir le post ↗](' + lien + ')')
+  lignes.push('`@' + username + '`')
+  lignes.push('⚠️ **0 vue** après ' + ageH + 'h')
+  return {
+    color: 0x992d22,
+    title: '⬇️ Reel à 0 vue · @' + username,
+    description: lignes.join('\n'),
+    footer: { text: 'gk0:' + reel.code },
+  }
+}
+
 function embedReel(username, reel, palier) {
   const v = verdict(reel.vues)
   const interactions = (reel.likes || 0) + (reel.commentaires || 0)
@@ -263,6 +282,21 @@ async function reconstruireEtat(moiId) {
   // on ne veut surtout pas re-marquer 24 h de reels d'un coup.
   premierCycle = dejaPoste.size === 0
   console.log('[etat] ' + dejaPoste.size + ' feedbacks deja postes retrouves (premierCycle=' + premierCycle + ')')
+
+  // #0-vues : recuperer les reels deja signales (footer "gk0:<code>").
+  if (SALON_ZERO) {
+    try {
+      const msgs = await lireMessages(SALON_ZERO, PAGES_HISTO)
+      for (const m of msgs) {
+        if (m.author && m.author.id !== moiId) continue
+        for (const e of (m.embeds || [])) {
+          const f = e.footer && e.footer.text
+          if (f && f.startsWith('gk0:')) zeroVus.add(f.slice(4))
+        }
+      }
+      console.log('[etat] ' + zeroVus.size + ' reels 0-vues deja signales')
+    } catch (e) { console.error('[etat] lecture #0-vues : ' + e.message) }
+  }
 
   // #classement : recuperer les totaux du dernier classement pour calculer le delta.
   try {
@@ -382,6 +416,7 @@ async function cycle() {
   // 3. Traitement des resultats -> classement + feedbacks a poster
   const maintenant = Date.now()
   const aPoster = []
+  const zeroAPoster = []
   const classement = []
   let comptesLus = 0
   const detailErreurs = {}
@@ -430,6 +465,11 @@ async function cycle() {
       if (!dejaPoste.has(r.code + ':' + dernier)) {
         aPoster.push({ username: c.username, reel: r, palier: dernier })
       }
+      // 0 vue apres ZERO_PALIER_H (1h) : signaler une fois par reel.
+      if (SALON_ZERO && ageH >= ZERO_PALIER_H && (r.vues || 0) === 0 && !zeroVus.has(r.code)) {
+        if (premierCycle && ageH > (parseInt(process.env.RATTRAPAGE_MAX_H || '3', 10))) { zeroVus.add(r.code) }
+        else { zeroAPoster.push({ username: c.username, reel: r }) }
+      }
     }
   }
   const erreursInsta = comptes.length - comptesLus
@@ -452,6 +492,22 @@ async function cycle() {
       console.error('[discord] envoi echoue (' + item.username + ') : ' + e.message)
     }
     await dodo(PAUSE_DISCORD_MS)
+  }
+
+  // 4b. Reels encore a 0 vue apres 1h -> salon dedie (une fois par reel).
+  if (SALON_ZERO && zeroAPoster.length) {
+    zeroAPoster.sort((a, b) => a.reel.posteA - b.reel.posteA)
+    const lotZero = zeroAPoster.slice(0, MAX_MESSAGES_PAR_CYCLE)
+    let zpostes = 0
+    for (const item of lotZero) {
+      try {
+        await poster(SALON_ZERO, { embeds: [embedZeroVue(item.username, item.reel)] })
+        zeroVus.add(item.reel.code)
+        zpostes++
+      } catch (e) { console.error('[0-vues] envoi echoue (' + item.username + ') : ' + e.message) }
+      await dodo(PAUSE_DISCORD_MS)
+    }
+    console.log('[0-vues] ' + zpostes + ' reel(s) signale(s) a 0 vue apres ' + ZERO_PALIER_H + 'h')
   }
 
   // 5. Classement

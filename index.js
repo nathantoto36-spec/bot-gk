@@ -267,7 +267,20 @@ async function poolMap(items, taille, fn) {
   return resultats
 }
 
-const lireCompte = async (c) => ({ c, res: await reelsDuCompte(c.username).catch(e => ({ erreur: 'reseau:' + (e && e.message) })) })
+// Un reel est-il dans la fenetre de suivi PALIER_MAX_H
+const aUnRecent = (res) => !!(res && res.reels && res.reels.some(r => r.posteA && (Date.now() - r.posteA) <= PALIER_MAX_H * 3600e3))
+
+const lireCompte = async (c) => {
+  let res = await reelsDuCompte(c.username).catch(e => ({ erreur: 'reseau:' + (e && e.message) }))
+  // Reprise underscore : profil GeeLark nomme maddyglasses alors que le vrai
+  // compte Instagram est maddyglasses avec underscore. Si aucun reel recent,
+  // on retente le pseudo + underscore et on adopte si cette version a un reel recent.
+  if (res && res.reels && !aUnRecent(res) && !/[._]$/.test(c.username)) {
+    const alt = await reelsDuCompte(c.username + '_').catch(() => null)
+    if (alt && aUnRecent(alt)) { res = alt; c.username = c.username + '_' }
+  }
+  return { c, res }
+}
 
 // --- Cycle -----------------------------------------------------------------
 

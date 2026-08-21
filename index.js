@@ -178,6 +178,7 @@ function embedZeroVue(username, reel) {
   if (lien) lignes.push('[Voir le post ↗](' + lien + ')')
   lignes.push('`@' + username + '`')
   lignes.push('⚠️ **0 vue** après ' + ageH + 'h')
+  lignes.push('🏷️ Groupe : **' + GROUPE_GEELARK + '**')
   return {
     color: 0x992d22,
     title: '⬇️ Reel à 0 vue · @' + username,

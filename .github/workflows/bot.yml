@@ -24,5 +24,5 @@ jobs:
           IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
           GEELARK_WATCH: 'jalinewayness'
-          IG_WATCH: 'oxficiennemefa,maddyglasses,loly.omlp'
+          IG_WATCH: 'maddyglasses,maddyglasses_,oxficiennemefa,oxficiennemefa_'
         run: node index.js

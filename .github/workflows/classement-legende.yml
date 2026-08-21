@@ -1,0 +1,38 @@
+name: classement-legende
+on:
+  repository_dispatch:
+    types: [classement_legende]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "panel = (re)poster le bouton · classement = poster le classement"
+        type: choice
+        options:
+          - classement
+          - panel
+        default: classement
+concurrency:
+  group: classement-legende
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+      - name: Classement sans legende
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
+          ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
+          SALON_CLASSEMENT_LEGENDE: '1540446974984196107'
+          ACTION: ${{ github.event.inputs.action || github.event.client_payload.action || 'classement' }}
+          INTERACTION_TOKEN: ${{ github.event.client_payload.token }}
+          APPLICATION_ID: ${{ github.event.client_payload.application_id }}
+        run: node classement-legende.js

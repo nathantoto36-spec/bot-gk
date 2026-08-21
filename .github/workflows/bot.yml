@@ -23,6 +23,5 @@ jobs:
           GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
           IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
-          GEELARK_WATCH: 'jalinewayness'
-          IG_WATCH: 'maddyglasses,maddyglasses_,oxficiennemefa,oxficiennemefa_'
+          SALON_ILLISIBLE: '1540213344894591036'
         run: node index.js

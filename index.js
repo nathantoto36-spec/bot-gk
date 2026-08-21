@@ -45,6 +45,9 @@ const PAGES_HISTO = parseInt(process.env.PAGES_HISTO || '15', 10)
 // Mouchard Instagram : comptes surveilles (IG_WATCH="pseudo1,pseudo2") dont on
 // journalise les reels bruts + leur age, pour diagnostiquer un faux "0 reel".
 const IG_WATCH = (process.env.IG_WATCH || '').split(',').map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
+// Salon dedie aux comptes illisibles (non lus). Trouve par NOM si l'ID n'est pas fourni.
+const SALON_ILLISIBLE = process.env.SALON_ILLISIBLE || ''
+const SALON_ILLISIBLE_NOM = process.env.SALON_ILLISIBLE_NOM || 'comptes-illisible'
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -351,6 +354,7 @@ async function cycle() {
   let comptesLus = 0
   const detailErreurs = {}
   const echecsDefinitifs = []
+  const illisiblesDetail = []
   const besoinConnexion = []
 
   for (const { c, res } of lectures) {
@@ -358,6 +362,7 @@ async function cycle() {
       const err = (res && res.erreur) || 'inconnu'
       detailErreurs[err] = (detailErreurs[err] || 0) + 1
       echecsDefinitifs.push(c.username)
+      illisiblesDetail.push({ u: c.username, err })
       if (err === 'connexion_requise' || err === 'cookie_refuse') besoinConnexion.push(c.username)
       continue
     }
@@ -431,6 +436,28 @@ async function cycle() {
       await dodo(PAUSE_DISCORD_MS)
     }
   }
+
+  // 5b. Salon dedie : liste des comptes non lus (illisibles) + groupe, chaque cycle.
+  try {
+    let chId = SALON_ILLISIBLE
+    if (!chId && SALON_ILLISIBLE_NOM) {
+      const ch = await discord('GET', '/channels/' + SALON_CLASSEMENT)
+      const gid = ch && ch.guild_id
+      if (gid) {
+        const salons = await discord('GET', '/guilds/' + gid + '/channels')
+        const cible = SALON_ILLISIBLE_NOM.toLowerCase().replace(/[^a-z0-9]+/g, '')
+        const tr = (salons || []).find(s => String(s.name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '').includes(cible))
+        if (tr) chId = tr.id
+      }
+    }
+    if (chId) {
+      const parRaison = {}
+      for (const it of illisiblesDetail) { (parRaison[it.err] = parRaison[it.err] || []).push(it.u) }
+      const lignesIll = Object.entries(parRaison).map(function (e) { return '- ' + e[0] + ' (' + e[1].length + ') : ' + e[1].join(', ') })
+      const descIll = illisiblesDetail.length ? lignesIll.join('\n') : 'Tous les comptes ont ete lus ce cycle.'
+      await poster(chId, { embeds: [{ color: illisiblesDetail.length ? 0xe74c3c : 0x2ecc71, title: 'Comptes non lus - groupe "' + GROUPE_GEELARK + '"', description: descIll.slice(0, 3800), footer: { text: comptesLus + '/' + comptes.length + ' lus - reessai automatique au prochain cycle' } }] })
+    }
+  } catch (e) { console.error('[illisible] post echoue : ' + e.message) }
 
   // 6. Alerte uniquement si plus RIEN n'a pu etre lu (blocage total).
   if (comptesLus === 0) {

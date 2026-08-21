@@ -25,4 +25,5 @@ jobs:
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
           SALON_ILLISIBLE: '1540213344894591036'
           SALON_BANS: '1540221364370411600'
+          SALON_ZERO: '1540234183451086858'
         run: node index.js

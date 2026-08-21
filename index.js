@@ -175,8 +175,14 @@ function embedsClassement(classement, horodatage, bilan) {
   if (courant.length) blocs.push(courant)
 
   const total = classement.reduce((s, c) => s + c.vues, 0)
+  const totalReels = classement.reduce((s, c) => s + (c.reels || 0), 0)
   const avecReels = classement.filter(c => c.reels > 0).length
   const sansReel = classement.length - avecReels
+
+  // En-tete affiche EN HAUT du classement : nombre total de reels comptabilises
+  // (tous comptes confondus) et total des vues cumulees.
+  const entete = '📊 **' + nombre(totalReels) + '** reels comptabilisés · 👁️ **' +
+    nombre(total) + '** vues cumulées sur ' + PALIER_MAX_H + 'h'
 
   const pied = [
     classement.length + ' comptes lus',
@@ -193,7 +199,7 @@ function embedsClassement(classement, horodatage, bilan) {
     title: i === 0
       ? '🏆 Classement des comptes · ' + horodatage
       : '🏆 Classement (suite ' + (i + 1) + '/' + blocs.length + ')',
-    description: bloc.join('\n').slice(0, 4000),
+    description: (i === 0 ? entete + '\n\n' : '') + bloc.join('\n').slice(0, 3800),
     footer: { text: i === blocs.length - 1 ? pied : 'suite…' },
   }))
 }

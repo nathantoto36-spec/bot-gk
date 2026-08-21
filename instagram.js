@@ -56,6 +56,11 @@ async function dispatcher() {
 const dodo = ms => new Promise(r => setTimeout(r, ms))
 const pioche = a => a[Math.floor(Math.random() * a.length)]
 
+// Attente apres un 429 avant l'unique retry en ligne. Volontairement COURTE :
+// une pause longue par compte, multipliee par tous les comptes rate-limites,
+// consommait tout le budget de temps du cycle et bloquait la lecture du groupe.
+const RL_BACKOFF_MS = parseInt(process.env.IG_RL_BACKOFF_MS || '4000', 10)
+
 function cookieBrut() {
   return process.env.IG_SESSION_COOKIE || ''
 }
@@ -184,8 +189,6 @@ async function passe(username, combien, avecCookie) {
   else if (r1.ok) {
     const j = await r1.json().catch(() => null)
     const items = (j && (j.items || (j.user && j.user.items))) || []
-    // Le feed a renvoye de VRAIS posts -> source de verite, meme s'il n'y a
-    // aucun reel dedans (compte 100 % photos, legitimement "0 reel").
     if (items.length) return { reels: items.map(depuisFeedItem).filter(Boolean) }
   } else {
     derniere = versErreur(r1.status)
@@ -203,8 +206,6 @@ async function passe(username, combien, avecCookie) {
     const user = j && j.data && j.data.user
     if (user) {
       const reels = reelsDepuisUser(user)
-      // On accepte si on a des reels, OU si le profil n'a vraiment aucun post.
-      // Un profil avec des posts mais 0 reel remonte = reponse incomplete.
       if (reels.length || nbPostsUser(user) === 0) return { reels }
     }
   } else {
@@ -258,7 +259,9 @@ const comptesFermes = new Set()
 
 async function lireSession(username, combien) {
   const rc = await passe(username, combien, true)
-  if (rc.erreur === 'rate_limit') { await dodo(45000); return await passe(username, combien, true) }
+  // Backoff COURT (pas 45 s) : un worker bloque 45 s par compte epuisait tout
+  // le budget de temps quand la moitie du groupe se faisait rate-limiter.
+  if (rc.erreur === 'rate_limit') { await dodo(RL_BACKOFF_MS); return await passe(username, combien, true) }
   return rc
 }
 
@@ -286,13 +289,15 @@ async function lire(username, combien) {
     const res = apresSession(await lireSession(username, combien))
     if (res.reels) return res
     if (res.erreur === 'compte_introuvable') { comptesFermes.delete(username); return res }
-    // Si la session est HS (cookie_refuse) on tente quand meme l'anonyme en secours.
     if (res.erreur !== 'cookie_refuse') return res
   }
 
   // --- 1. Lecture publique (anonyme) ---
   let r = await passe(username, combien, false)
-  if (r.erreur === 'rate_limit') { await dodo(45000); r = await passe(username, combien, false) }
+  // Backoff COURT sur 429 : on ne bloque plus le worker 45 s. Les comptes encore
+  // rate-limites seront repris par la passe de rattrapage du cycle (et au cycle
+  // suivant sur une IP fraiche), ce qui laisse lire beaucoup plus de comptes.
+  if (r.erreur === 'rate_limit') { await dodo(RL_BACKOFF_MS); r = await passe(username, combien, false) }
   if (r.reels) { comptesFermes.delete(username); return r } // lisible en public -> plus ferme
   if (r.erreur === 'compte_introuvable') return r
   if (r.erreur !== 'cookie_invalide') return r // reseau, http_5xx, reponse_vide
@@ -398,8 +403,6 @@ async function retrouver(username, combien) {
   }
 
   for (const c of await candidats(username)) {
-    // Garde-fou : on n'accepte qu'un pseudo tres proche du nom attendu.
-    // Sans ca, une recherche "lea" ramenerait le compte de n'importe qui.
     if (distance(attendu, simplifie(c)) > 2) continue
     const r = await lire(c, combien)
     if (r.reels) return { username: c, resultat: r }

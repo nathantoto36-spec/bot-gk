@@ -63,6 +63,9 @@ let banStateMsgId = null       // id du message d'etat (compteurs) dans SALON_BA
 const SALON_500 = process.env.SALON_500 || ''
 const VUES_MIN_500 = parseInt(process.env.VUES_MIN_500 || '500', 10)
 const cinqCentVus = new Set()  // reels deja signales 500+ vues (par code)
+// Salon dedie aux reels postes SANS legende (caption vide).
+const SALON_LEGENDE = process.env.SALON_LEGENDE || ''
+const sansLegendeVus = new Set()  // reels deja signales sans legende (par code)
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -179,6 +182,22 @@ function verdict(vues) {
   if (vues >= 1000) return { emoji: '🚀', label: 'CA MONTE', couleur: 0x3498db, conseil: 'Bonne dynamique. Garde ce hook et ce son, et republie a la meme heure demain.' }
   if (vues >= 100) return { emoji: '🔥', label: 'BON DEBUT', couleur: 0xe67e22, conseil: "Le contenu accroche deja. Reponds aux commentaires pour pousser encore la portee." }
   return { emoji: '🌱', label: 'DEMARRAGE', couleur: 0x95a5a6, conseil: 'Ca demarre doucement. Pour le prochain : hook plus fort des la 1re seconde, son tendance, et poste a ta meilleure heure.' }
+}
+
+function embedSansLegende(username, reel) {
+  const ageH = reel.posteA ? ((Date.now() - reel.posteA) / 3600e3).toFixed(1) : '?'
+  const lien = reel.code ? 'https://www.instagram.com/reel/' + reel.code + '/' : null
+  const lignes = []
+  if (lien) lignes.push('[Voir le post ↗](' + lien + ')')
+  lignes.push('`@' + username + '`')
+  lignes.push('⚠️ **Aucune légende** sur ce reel (posté il y a ' + ageH + 'h)')
+  lignes.push('🏷️ Groupe : **' + GROUPE_GEELARK + '**')
+  return {
+    color: 0xe67e22,
+    title: '⚠️ Reel sans légende · @' + username,
+    description: lignes.join('\n'),
+    footer: { text: 'gkl:' + reel.code },
+  }
 }
 
 function embedCinqCent(username, reel) {
@@ -399,6 +418,21 @@ async function reconstruireEtat(moiId) {
     } catch (e) { console.error('[etat] lecture #500 : ' + e.message) }
   }
 
+  // #legende : recuperer les reels sans legende deja signales (footer "gkl:<code>").
+  if (SALON_LEGENDE) {
+    try {
+      const msgs = await lireMessages(SALON_LEGENDE, PAGES_HISTO)
+      for (const m of msgs) {
+        if (m.author && m.author.id !== moiId) continue
+        for (const e of (m.embeds || [])) {
+          const f = e.footer && e.footer.text
+          if (f && f.startsWith('gkl:')) sansLegendeVus.add(f.slice(4))
+        }
+      }
+      console.log('[etat] ' + sansLegendeVus.size + ' reels sans legende deja signales')
+    } catch (e) { console.error('[etat] lecture #legende : ' + e.message) }
+  }
+
   // #classement : recuperer les totaux du dernier classement pour calculer le delta.
   try {
     const msgs = await lireMessages(SALON_CLASSEMENT, 2)
@@ -519,6 +553,7 @@ async function cycle() {
   const aPoster = []
   const zeroAPoster = []
   const cinqCentAPoster = []
+  const sansLegendeAPoster = []
   const classement = []
   let comptesLus = 0
   const detailErreurs = {}
@@ -558,6 +593,8 @@ async function cycle() {
       const franchis = PALIERS.filter(p => ageH >= p)
       // 500+ vues : signaler une fois par reel (a n'importe quel palier jusqu'a 24h).
       if (SALON_500 && (r.vues || 0) >= VUES_MIN_500 && !cinqCentVus.has(r.code)) { cinqCentAPoster.push({ username: c.username, reel: r }) }
+      // Reel sans legende (caption vide) : signaler une fois par reel.
+      if (SALON_LEGENDE && String(r.legende || '').trim() === '' && !sansLegendeVus.has(r.code)) { sansLegendeAPoster.push({ username: c.username, reel: r }) }
       if (!franchis.length) continue
       // Premier lancement a froid : on ne rejoue pas l'historique, on repart du flux.
       if (premierCycle && ageH > (parseInt(process.env.RATTRAPAGE_MAX_H || '3', 10))) {
@@ -628,6 +665,22 @@ async function cycle() {
       await dodo(PAUSE_DISCORD_MS)
     }
     console.log('[500] ' + c5 + ' reel(s) 500+ vues signale(s)')
+  }
+
+  // 4d. Reels sans legende -> salon dedie (une fois par reel).
+  if (SALON_LEGENDE && sansLegendeAPoster.length) {
+    sansLegendeAPoster.sort((a, b) => b.reel.posteA - a.reel.posteA)
+    const lotL = sansLegendeAPoster.slice(0, MAX_MESSAGES_PAR_CYCLE)
+    let cl = 0
+    for (const item of lotL) {
+      try {
+        await poster(SALON_LEGENDE, { embeds: [embedSansLegende(item.username, item.reel)] })
+        sansLegendeVus.add(item.reel.code)
+        cl++
+      } catch (e) { console.error('[legende] envoi echoue (' + item.username + ') : ' + e.message) }
+      await dodo(PAUSE_DISCORD_MS)
+    }
+    console.log('[legende] ' + cl + ' reel(s) sans legende signale(s)')
   }
 
   // 5. Classement

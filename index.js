@@ -55,6 +55,10 @@ const ZERO_PALIER_H = parseInt(process.env.ZERO_PALIER_H || '1', 10)
 const zeroVus = new Set()          // reels deja signales a 0 vue (par code)
 // Salon dedie au classement par MOYENNE de vues/reel (un salon par groupe).
 const SALON_MOYENNE = process.env.SALON_MOYENNE || ''
+// Suivi bans : nb de cycles d'illisibilite consecutive avant de classer un compte "ban probable".
+const SEUIL_BAN_CYCLES = parseInt(process.env.SEUIL_BAN_CYCLES || '12', 10)
+const banStreaks = new Map()   // username -> cycles illisibles consecutifs
+let banStateMsgId = null       // id du message d'etat (compteurs) dans SALON_BANS
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -337,6 +341,29 @@ async function reconstruireEtat(moiId) {
     } catch (e) { console.error('[etat] lecture #0-vues : ' + e.message) }
   }
 
+  // Suivi bans : recuperer les compteurs d'illisibilite consecutive (footer "gkstate:<groupe>").
+  if (SALON_BANS) {
+    try {
+      const msgs = await lireMessages(SALON_BANS, 3)
+      const cible = 'gkstate:' + GROUPE_GEELARK
+      for (const m of msgs) {
+        if (m.author && m.author.id !== moiId) continue
+        const e0 = (m.embeds || [])[0]
+        const f = e0 && e0.footer && e0.footer.text
+        if (f === cible) {
+          banStateMsgId = m.id
+          try {
+            const parts = String(e0.description || '').split('```')
+            const obj = JSON.parse((parts[1] || '{}').trim() || '{}')
+            for (const k of Object.keys(obj)) banStreaks.set(k, obj[k])
+          } catch (x) { /* etat illisible, on repart de zero */ }
+          break
+        }
+      }
+      console.log('[etat] suivi bans : ' + banStreaks.size + ' compteurs (msg ' + (banStateMsgId ? 'trouve' : 'a creer') + ')')
+    } catch (e) { console.error('[etat] lecture suivi bans : ' + e.message) }
+  }
+
   // #classement : recuperer les totaux du dernier classement pour calculer le delta.
   try {
     const msgs = await lireMessages(SALON_CLASSEMENT, 2)
@@ -602,20 +629,46 @@ async function cycle() {
       }
     }
   } catch (e) { console.error('[illisible] post echoue : ' + e.message) }
-  // 5c) Salon bannissement : comptes introuvables sur Instagram (404 persistant apres correction auto) = possibilite de ban.
+  // 5c) Salon bannissement : 404 immediat + comptes illisibles depuis SEUIL_BAN_CYCLES cycles (ban probable).
   if (SALON_BANS) {
     try {
-      const bans = illisiblesDetail.filter(function (it) { return it.err === 'compte_introuvable' }).map(function (it) { return it.u })
-      if (bans.length) {
+      const lusOk = new Set(classement.map(function (x) { return x.username }))
+      const errParU = new Map(illisiblesDetail.map(function (it) { return [it.u, it.err] }))
+      const introuvables = []
+      for (const c of comptes) {
+        const u = c.username
+        const err = errParU.get(u)
+        if (lusOk.has(u)) { banStreaks.delete(u); continue }
+        if (err === 'compte_introuvable') { introuvables.push(u); banStreaks.delete(u); continue }
+        if (err === 'connexion_requise' || err === 'cookie_refuse') { banStreaks.delete(u); continue }
+        if (err === 'budget') { continue }
+        if (err) { banStreaks.set(u, Math.min((banStreaks.get(u) || 0) + 1, SEUIL_BAN_CYCLES + 5)) }
+      }
+      const setComptes = new Set(comptes.map(function (c) { return c.username }))
+      const etatCompteurs = {}
+      for (const [u, n] of banStreaks) { if (setComptes.has(u) && n > 0) etatCompteurs[u] = n }
+      const probables = Object.keys(etatCompteurs).filter(function (u) { return etatCompteurs[u] >= SEUIL_BAN_CYCLES })
+
+      const champs = []
+      if (introuvables.length) champs.push({ name: '🚫 Introuvables sur Instagram (404) — ' + introuvables.length, value: '```' + String.fromCharCode(10) + introuvables.join(String.fromCharCode(10)).slice(0, 1000) + String.fromCharCode(10) + '```' })
+      if (probables.length) champs.push({ name: '⏳ Illisibles depuis ' + SEUIL_BAN_CYCLES + '+ cycles — ' + probables.length, value: '```' + String.fromCharCode(10) + probables.join(String.fromCharCode(10)).slice(0, 1000) + String.fromCharCode(10) + '```' })
+      if (champs.length) {
         const hBan = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-        const embBan = { color: 0xc0392b, title: '❌ Possibilité de ban · groupe "' + GROUPE_GEELARK + '"', description: '**' + bans.length + '** compte(s) introuvable(s) sur Instagram ce cycle (404 même après correction auto du pseudo) — à vérifier : bannis, supprimés ou renommés.', fields: [{ name: '🚫 Comptes à vérifier (' + bans.length + ')', value: '```' + String.fromCharCode(10) + bans.join(String.fromCharCode(10)).slice(0, 1000) + String.fromCharCode(10) + '```' }], footer: { text: hBan } }
+        const total = introuvables.length + probables.length
+        const embBan = { color: 0xc0392b, title: '❌ Possibilité de ban · groupe "' + GROUPE_GEELARK + '"', description: '**' + total + '** compte(s) à vérifier — bannis, supprimés ou renommés. (404 = introuvable confirmé ; illisible ' + SEUIL_BAN_CYCLES + '+ cycles = ban probable car jamais lisible.)', fields: champs, footer: { text: hBan } }
         if (await memeQueDernier(SALON_BANS, moiId, embBan)) {
           console.log('[bans] liste identique au dernier cycle -> pas de repost (anti-spam)')
         } else {
           await poster(SALON_BANS, { embeds: [embBan] })
-          console.log('[bans] ' + bans.length + ' comptes en possibilite de ban : ' + bans.join(', '))
+          console.log('[bans] ' + total + ' comptes possibilite de ban (404=' + introuvables.length + ', streak=' + probables.length + ')')
         }
       }
+
+      const etatEmbed = { color: 0x2c2f33, title: '🔧 Suivi bans (auto) · ' + GROUPE_GEELARK, description: 'Compteurs internes (illisibilité consécutive). Ne pas supprimer.' + String.fromCharCode(10) + '```' + JSON.stringify(etatCompteurs).slice(0, 3500) + '```', footer: { text: 'gkstate:' + GROUPE_GEELARK } }
+      try {
+        if (banStateMsgId) { await discord('PATCH', '/channels/' + SALON_BANS + '/messages/' + banStateMsgId, { embeds: [etatEmbed] }) }
+        else { const mm = await poster(SALON_BANS, { embeds: [etatEmbed] }); if (mm && mm.id) banStateMsgId = mm.id }
+      } catch (e) { console.error('[bans] etat non sauvegarde : ' + e.message) }
     } catch (e) { console.error('[bans] post echoue : ' + e.message) }
   }
 

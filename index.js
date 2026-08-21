@@ -59,6 +59,10 @@ const SALON_MOYENNE = process.env.SALON_MOYENNE || ''
 const SEUIL_BAN_CYCLES = parseInt(process.env.SEUIL_BAN_CYCLES || '12', 10)
 const banStreaks = new Map()   // username -> cycles illisibles consecutifs
 let banStateMsgId = null       // id du message d'etat (compteurs) dans SALON_BANS
+// Salon dedie aux reels qui depassent VUES_MIN_500 vues (entre 1h et 24h).
+const SALON_500 = process.env.SALON_500 || ''
+const VUES_MIN_500 = parseInt(process.env.VUES_MIN_500 || '500', 10)
+const cinqCentVus = new Set()  // reels deja signales 500+ vues (par code)
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -175,6 +179,22 @@ function verdict(vues) {
   if (vues >= 1000) return { emoji: '🚀', label: 'CA MONTE', couleur: 0x3498db, conseil: 'Bonne dynamique. Garde ce hook et ce son, et republie a la meme heure demain.' }
   if (vues >= 100) return { emoji: '🔥', label: 'BON DEBUT', couleur: 0xe67e22, conseil: "Le contenu accroche deja. Reponds aux commentaires pour pousser encore la portee." }
   return { emoji: '🌱', label: 'DEMARRAGE', couleur: 0x95a5a6, conseil: 'Ca demarre doucement. Pour le prochain : hook plus fort des la 1re seconde, son tendance, et poste a ta meilleure heure.' }
+}
+
+function embedCinqCent(username, reel) {
+  const ageH = reel.posteA ? ((Date.now() - reel.posteA) / 3600e3).toFixed(1) : '?'
+  const lien = reel.code ? 'https://www.instagram.com/reel/' + reel.code + '/' : null
+  const lignes = []
+  if (lien) lignes.push('[Voir le post ↗](' + lien + ')')
+  lignes.push('`@' + username + '`')
+  lignes.push('🚀 **' + nombre(reel.vues) + '** vues après ' + ageH + 'h')
+  lignes.push('🏷️ Groupe : **' + GROUPE_GEELARK + '**')
+  return {
+    color: 0x2ecc71,
+    title: '🚀 500+ vues · @' + username,
+    description: lignes.join('\n'),
+    footer: { text: 'gk5:' + reel.code },
+  }
 }
 
 function embedZeroVue(username, reel) {
@@ -364,6 +384,21 @@ async function reconstruireEtat(moiId) {
     } catch (e) { console.error('[etat] lecture suivi bans : ' + e.message) }
   }
 
+  // #500 : recuperer les reels 500+ deja signales (footer "gk5:<code>").
+  if (SALON_500) {
+    try {
+      const msgs = await lireMessages(SALON_500, PAGES_HISTO)
+      for (const m of msgs) {
+        if (m.author && m.author.id !== moiId) continue
+        for (const e of (m.embeds || [])) {
+          const f = e.footer && e.footer.text
+          if (f && f.startsWith('gk5:')) cinqCentVus.add(f.slice(4))
+        }
+      }
+      console.log('[etat] ' + cinqCentVus.size + ' reels 500+ deja signales')
+    } catch (e) { console.error('[etat] lecture #500 : ' + e.message) }
+  }
+
   // #classement : recuperer les totaux du dernier classement pour calculer le delta.
   try {
     const msgs = await lireMessages(SALON_CLASSEMENT, 2)
@@ -483,6 +518,7 @@ async function cycle() {
   const maintenant = Date.now()
   const aPoster = []
   const zeroAPoster = []
+  const cinqCentAPoster = []
   const classement = []
   let comptesLus = 0
   const detailErreurs = {}
@@ -520,6 +556,8 @@ async function cycle() {
       if (!r.code) continue
       const ageH = (maintenant - r.posteA) / 3600e3
       const franchis = PALIERS.filter(p => ageH >= p)
+      // 500+ vues : signaler une fois par reel (a n'importe quel palier jusqu'a 24h).
+      if (SALON_500 && (r.vues || 0) >= VUES_MIN_500 && !cinqCentVus.has(r.code)) { cinqCentAPoster.push({ username: c.username, reel: r }) }
       if (!franchis.length) continue
       // Premier lancement a froid : on ne rejoue pas l'historique, on repart du flux.
       if (premierCycle && ageH > (parseInt(process.env.RATTRAPAGE_MAX_H || '3', 10))) {
@@ -574,6 +612,22 @@ async function cycle() {
       await dodo(PAUSE_DISCORD_MS)
     }
     console.log('[0-vues] ' + zpostes + ' reel(s) signale(s) a 0 vue apres ' + ZERO_PALIER_H + 'h')
+  }
+
+  // 4c. Reels a 500+ vues -> salon dedie (une fois par reel, du plus vu au moins vu).
+  if (SALON_500 && cinqCentAPoster.length) {
+    cinqCentAPoster.sort((a, b) => (b.reel.vues || 0) - (a.reel.vues || 0))
+    const lot500 = cinqCentAPoster.slice(0, MAX_MESSAGES_PAR_CYCLE)
+    let c5 = 0
+    for (const item of lot500) {
+      try {
+        await poster(SALON_500, { embeds: [embedCinqCent(item.username, item.reel)] })
+        cinqCentVus.add(item.reel.code)
+        c5++
+      } catch (e) { console.error('[500] envoi echoue (' + item.username + ') : ' + e.message) }
+      await dodo(PAUSE_DISCORD_MS)
+    }
+    console.log('[500] ' + c5 + ' reel(s) 500+ vues signale(s)')
   }
 
   // 5. Classement

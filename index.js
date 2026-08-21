@@ -53,6 +53,8 @@ const SALON_BANS = process.env.SALON_BANS || ''
 const SALON_ZERO = process.env.SALON_ZERO || ''
 const ZERO_PALIER_H = parseInt(process.env.ZERO_PALIER_H || '1', 10)
 const zeroVus = new Set()          // reels deja signales a 0 vue (par code)
+// Salon dedie au classement par MOYENNE de vues/reel (un salon par groupe).
+const SALON_MOYENNE = process.env.SALON_MOYENNE || ''
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -259,6 +261,42 @@ function embedsClassement(classement, horodatage, bilan) {
       : '🏆 Classement (suite ' + (i + 1) + '/' + blocs.length + ')',
     description: (i === 0 ? entete + '\n\n' : '') + bloc.join('\n').slice(0, 3800),
     footer: { text: i === blocs.length - 1 ? pied : 'suite…' },
+  }))
+}
+
+function embedsMoyenne(classement, horodatage) {
+  const actifs = classement.filter(c => c.reels > 0)
+    .map(c => ({ username: c.username, vues: c.vues, reels: c.reels, moyenne: Math.round(c.vues / c.reels) }))
+    .sort((a, b) => b.moyenne - a.moyenne)
+  const lignes = actifs.map((c, i) => {
+    const rang = i + 1
+    const medaille = rang === 1 ? '🥇' : rang === 2 ? '🥈' : rang === 3 ? '🥉'
+      : '`#' + String(rang).padStart(3, ' ') + '`'
+    return medaille + ' `@' + c.username + '` — **' + nombre(c.moyenne) + '** vues/reel · ' +
+           c.reels + ' reel' + (c.reels > 1 ? 's' : '') + ' · ' + nombre(c.vues) + ' vues'
+  })
+
+  const blocs = []
+  let courant = []
+  let taille = 0
+  for (const l of lignes) {
+    if (courant.length && taille + l.length + 1 > 3000) { blocs.push(courant); courant = []; taille = 0 }
+    courant.push(l); taille += l.length + 1
+  }
+  if (courant.length) blocs.push(courant)
+  if (!blocs.length) blocs.push(['Aucun compte avec reel sur ' + PALIER_MAX_H + 'h.'])
+
+  const moyGlobale = actifs.length ? Math.round(actifs.reduce((s, c) => s + c.moyenne, 0) / actifs.length) : 0
+  const entete = '📊 Moyenne de vues par reel sur ' + PALIER_MAX_H + 'h · **' + actifs.length +
+    '** comptes actifs · moyenne globale **' + nombre(moyGlobale) + '** vues/reel'
+
+  return blocs.map((bloc, i) => ({
+    color: 0x5865f2,
+    title: i === 0
+      ? '📊 Classement moyenne · groupe "' + GROUPE_GEELARK + '" · ' + horodatage
+      : '📊 Classement moyenne (suite ' + (i + 1) + '/' + blocs.length + ')',
+    description: (i === 0 ? entete + '\n\n' : '') + bloc.join('\n').slice(0, 3800),
+    footer: { text: i === blocs.length - 1 ? actifs.length + ' comptes classés · moyenne = vues ÷ reels' : 'suite…' },
   }))
 }
 
@@ -522,6 +560,15 @@ async function cycle() {
       try { await poster(SALON_CLASSEMENT, { embeds: [emb] }) } catch (e) {
         console.error('[discord] classement echoue : ' + e.message)
       }
+      await dodo(PAUSE_DISCORD_MS)
+    }
+  }
+
+  // 5a. Classement par MOYENNE de vues/reel dans le salon dedie (un par groupe).
+  if (SALON_MOYENNE && classement.length) {
+    const heureM = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    for (const emb of embedsMoyenne(classement, heureM)) {
+      try { await poster(SALON_MOYENNE, { embeds: [emb] }) } catch (e) { console.error('[moyenne] echoue : ' + e.message) }
       await dodo(PAUSE_DISCORD_MS)
     }
   }

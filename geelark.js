@@ -124,6 +124,18 @@ export async function listPhonesInGroup(groupe) {
     }
   }
 
+  // MODE BRUT (GEELARK_GROUP_RAW=true) : comparaison sur le nom EXACT renvoye par
+  // GeeLark (minuscules + trim), SANS enlever la coche/emoji. Indispensable quand
+  // deux groupes ne different QUE par la coche, ex "tkanuya account 2" (89) vs
+  // "✔️tkanuya account 2" (101) : le mode normalise les fusionnerait a tort.
+  const raw = String(process.env.GEELARK_GROUP_RAW || 'false') === 'true'
+  if (raw) {
+    const tRaw = String(groupe || '').toLowerCase().trim()
+    const items = r.items.filter(p => String(p.groupName || '').toLowerCase().trim() === tRaw)
+    console.log('[geelark] mode BRUT : cible exacte "' + tRaw + '" -> ' + items.length + ' comptes')
+    return { items, totalCompte: r.items.length, groupes }
+  }
+
   const cible = normGroupe(groupe)
   if (!cible) return { items: r.items, totalCompte: r.items.length, groupes }
 

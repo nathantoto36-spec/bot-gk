@@ -123,6 +123,37 @@ function poster(chId, payload) {
   return discord('POST', '/channels/' + chId + '/messages', payload)
 }
 
+// Signature stable d'un embed (compteurs + comptes par raison), en IGNORANT l'horodatage.
+// Permet de ne pas reposter un message identique au cycle precedent (anti-spam).
+function signatureEmbed(emb) {
+  if (!emb) return 'null'
+  const champs = (emb.fields || []).map(function (f) {
+    const raison = (String(f.name || '').match(/[a-zA-Z_]+/g) || []).join('_')
+    const noms = String(f.value || '').replace(/`/g, '').split(String.fromCharCode(10)).map(function (x) { return x.trim() }).filter(Boolean).sort()
+    return raison + ':' + noms.join(',')
+  }).sort()
+  const d = String(emb.description || '')
+  const mm = d.match(/(\d+)\s*\/\s*(\d+)/)
+  const compteurs = mm ? mm[1] + '/' + mm[2] : ''
+  const vide = /tous les comptes ont/.test(d) ? 'ok' : 'ko'
+  return compteurs + '|' + vide + '|' + champs.join('|')
+}
+
+// true si le dernier message du MEME groupe (meme titre) dans ce salon a la meme signature.
+async function memeQueDernier(chId, moiId, emb) {
+  try {
+    const titre = String(emb.title || '')
+    const msgs = await lireMessages(chId, 1)
+    const dernier = (msgs || []).find(function (m) {
+      if (moiId && !(m.author && m.author.id === moiId)) return false
+      const e0 = m.embeds && m.embeds[0]
+      return e0 && String(e0.title || '') === titre
+    })
+    if (!dernier) return false
+    return signatureEmbed(dernier.embeds[0]) === signatureEmbed(emb)
+  } catch (e) { return false }
+}
+
 // --- Mise en forme ---------------------------------------------------------
 
 function nombre(n) {
@@ -460,7 +491,11 @@ async function cycle() {
       const embIll = illisiblesDetail.length
         ? { color: 0xe74c3c, title: '📒 Comptes non lus · groupe "' + GROUPE_GEELARK + '"', description: '**' + comptesLus + '/' + comptes.length + '** lus · **' + illisiblesDetail.length + '** non lus ce cycle — réessai automatique au prochain cycle.', fields: champs.slice(0, 25), footer: { text: hIll } }
         : { color: 0x2ecc71, title: '📒 Comptes non lus · groupe "' + GROUPE_GEELARK + '"', description: '✅ **' + comptesLus + '/' + comptes.length + '** — tous les comptes ont été lus ce cycle.', footer: { text: hIll } }
-      await poster(chId, { embeds: [embIll] })
+      if (await memeQueDernier(chId, moiId, embIll)) {
+        console.log('[illisible] identique au dernier cycle -> pas de repost (anti-spam)')
+      } else {
+        await poster(chId, { embeds: [embIll] })
+      }
     }
   } catch (e) { console.error('[illisible] post echoue : ' + e.message) }
   // 5c) Salon bannissement : comptes introuvables sur Instagram (404 persistant apres correction auto) = possibilite de ban.
@@ -469,8 +504,13 @@ async function cycle() {
       const bans = illisiblesDetail.filter(function (it) { return it.err === 'compte_introuvable' }).map(function (it) { return it.u })
       if (bans.length) {
         const hBan = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-        await poster(SALON_BANS, { embeds: [{ color: 0xc0392b, title: '❌ Possibilité de ban · groupe "' + GROUPE_GEELARK + '"', description: '**' + bans.length + '** compte(s) introuvable(s) sur Instagram ce cycle (404 même après correction auto du pseudo) — à vérifier : bannis, supprimés ou renommés.', fields: [{ name: '🚫 Comptes à vérifier (' + bans.length + ')', value: '```' + String.fromCharCode(10) + bans.join(String.fromCharCode(10)).slice(0, 1000) + String.fromCharCode(10) + '```' }], footer: { text: hBan } }] })
-        console.log('[bans] ' + bans.length + ' comptes en possibilite de ban : ' + bans.join(', '))
+        const embBan = { color: 0xc0392b, title: '❌ Possibilité de ban · groupe "' + GROUPE_GEELARK + '"', description: '**' + bans.length + '** compte(s) introuvable(s) sur Instagram ce cycle (404 même après correction auto du pseudo) — à vérifier : bannis, supprimés ou renommés.', fields: [{ name: '🚫 Comptes à vérifier (' + bans.length + ')', value: '```' + String.fromCharCode(10) + bans.join(String.fromCharCode(10)).slice(0, 1000) + String.fromCharCode(10) + '```' }], footer: { text: hBan } }
+        if (await memeQueDernier(SALON_BANS, moiId, embBan)) {
+          console.log('[bans] liste identique au dernier cycle -> pas de repost (anti-spam)')
+        } else {
+          await poster(SALON_BANS, { embeds: [embBan] })
+          console.log('[bans] ' + bans.length + ' comptes en possibilite de ban : ' + bans.join(', '))
+        }
       }
     } catch (e) { console.error('[bans] post echoue : ' + e.message) }
   }

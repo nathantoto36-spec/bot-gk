@@ -42,6 +42,9 @@ const RETENTATIVES = parseInt(process.env.RETENTATIVES || '1', 10)
 const BUDGET_MS = parseInt(process.env.BUDGET_MS || '480000', 10) // 8 min
 // Combien de pages d'historique relire (100 msg/page) pour reconstruire l'etat.
 const PAGES_HISTO = parseInt(process.env.PAGES_HISTO || '15', 10)
+// Mouchard Instagram : comptes surveilles (IG_WATCH="pseudo1,pseudo2") dont on
+// journalise les reels bruts + leur age, pour diagnostiquer un faux "0 reel".
+const IG_WATCH = (process.env.IG_WATCH || '').split(',').map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -347,6 +350,12 @@ async function cycle() {
     }
     comptesLus++
     const recents = res.reels.filter(r => r.posteA && (maintenant - r.posteA) <= PALIER_MAX_H * 3600e3)
+    if (IG_WATCH.includes(c.username)) {
+      const detail = (res.reels || []).slice(0, 8).map(r =>
+        'age=' + (r.posteA ? ((maintenant - r.posteA) / 3600e3).toFixed(1) + 'h' : 'NULL') + '/vues=' + (r.vues || 0)).join(' ; ')
+      console.log('[ig-watch] ' + c.username + ' : reelsBruts=' + (res.reels || []).length +
+        ' recents24h=' + recents.length + ' [' + detail + ']')
+    }
     const vuesTotales = recents.reduce((s, r) => s + (r.vues || 0), 0)
     const avant = totauxPrecedents.get(c.username)
     classement.push({

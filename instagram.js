@@ -142,6 +142,7 @@ function depuisFeedItem(it) {
     vues: it.play_count || it.ig_play_count || it.view_count || 0,
     likes: it.like_count || 0,
     commentaires: it.comment_count || 0,
+    legende: (it.caption && it.caption.text) || '',
   }
 }
 
@@ -155,6 +156,7 @@ function depuisEdge(node) {
     likes: (node.edge_liked_by && node.edge_liked_by.count) ||
            (node.edge_media_preview_like && node.edge_media_preview_like.count) || 0,
     commentaires: (node.edge_media_to_comment && node.edge_media_to_comment.count) || 0,
+    legende: (node.edge_media_to_caption && node.edge_media_to_caption.edges && node.edge_media_to_caption.edges[0] && node.edge_media_to_caption.edges[0].node && node.edge_media_to_caption.edges[0].node.text) || '',
   }
 }
 

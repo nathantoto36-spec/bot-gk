@@ -48,6 +48,7 @@ const IG_WATCH = (process.env.IG_WATCH || '').split(',').map(x => x.trim().toLow
 // Salon dedie aux comptes illisibles (non lus). Trouve par NOM si l'ID n'est pas fourni.
 const SALON_ILLISIBLE = process.env.SALON_ILLISIBLE || ''
 const SALON_ILLISIBLE_NOM = process.env.SALON_ILLISIBLE_NOM || 'comptes-illisible'
+const SALON_BANS = process.env.SALON_BANS || ''
 
 if (!TOKEN) {
   console.error("[FATAL] Variable d'environnement DISCORD_BOT_TOKEN absente.")
@@ -462,6 +463,17 @@ async function cycle() {
       await poster(chId, { embeds: [embIll] })
     }
   } catch (e) { console.error('[illisible] post echoue : ' + e.message) }
+  // 5c) Salon bannissement : comptes introuvables sur Instagram (404 persistant apres correction auto) = possibilite de ban.
+  if (SALON_BANS) {
+    try {
+      const bans = illisiblesDetail.filter(function (it) { return it.err === 'compte_introuvable' }).map(function (it) { return it.u })
+      if (bans.length) {
+        const hBan = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        await poster(SALON_BANS, { embeds: [{ color: 0xc0392b, title: '❌ Possibilité de ban · groupe "' + GROUPE_GEELARK + '"', description: '**' + bans.length + '** compte(s) introuvable(s) sur Instagram ce cycle (404 même après correction auto du pseudo) — à vérifier : bannis, supprimés ou renommés.', fields: [{ name: '🚫 Comptes à vérifier (' + bans.length + ')', value: '```' + String.fromCharCode(10) + bans.join(String.fromCharCode(10)).slice(0, 1000) + String.fromCharCode(10) + '```' }], footer: { text: hBan } }] })
+        console.log('[bans] ' + bans.length + ' comptes en possibilite de ban : ' + bans.join(', '))
+      }
+    } catch (e) { console.error('[bans] post echoue : ' + e.message) }
+  }
 
   // 6. Alerte uniquement si plus RIEN n'a pu etre lu (blocage total).
   if (comptesLus === 0) {

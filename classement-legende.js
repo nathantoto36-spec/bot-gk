@@ -223,10 +223,10 @@ async function main() {
 
   // On envoie : soit on edite la reponse de l'interaction, soit on poste dans le salon.
   if (INTERACTION_TOKEN && APPLICATION_ID) {
-    // 1er embed via l'edition de la reponse differee, le reste en messages du salon.
-    await editerInteraction({ embeds: [embeds[0]] })
-    for (const emb of embeds.slice(1)) { await discord('POST', '/channels/' + SALON + '/messages', { embeds: [emb] }); await dodo(600) }
-    console.log('[classement] réponse interaction éditée (' + embeds.length + ' embed(s))')
+    // Reponse EPHEMERE (visible par le cliqueur seul) : tout dans le message @original.
+    // Discord accepte jusqu'a 10 embeds par message ; le classement tient largement dedans.
+    await editerInteraction({ embeds: embeds.slice(0, 10) })
+    console.log('[classement] réponse interaction éditée (éphémère, ' + Math.min(embeds.length, 10) + ' embed(s))')
   } else {
     for (const emb of embeds) { await discord('POST', '/channels/' + SALON + '/messages', { embeds: [emb] }); await dodo(600) }
     console.log('[classement] posté dans le salon (' + embeds.length + ' embed(s))')

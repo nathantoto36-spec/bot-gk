@@ -120,9 +120,9 @@ export default {
     const boutonId = env.BOUTON_ID || 'classement_sans_legende'
     if (interaction.type === 3 && interaction.data && interaction.data.custom_id === boutonId) {
       ctx.waitUntil(declencherGitHub(env, interaction))
-      // type 5 = reponse differee publique : Discord affiche "réfléchit...",
+      // type 5 = reponse differee : Discord affiche "réfléchit...",
       // le workflow GitHub editera ce message avec le classement.
-      return json({ type: 5 })
+      return json({ type: 5, data: { flags: 64 } }) // 64 = ephemere (visible par le cliqueur seul)
     }
 
     return json({ type: 4, data: { content: 'Interaction non reconnue.', flags: 64 } })

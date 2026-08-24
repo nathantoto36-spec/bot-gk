@@ -1,0 +1,36 @@
+name: cout-geelark
+on:
+  repository_dispatch:
+    types: [cout_geelark_jour]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "panel = (re)poster le bouton · cout = poster le coût du jour"
+        type: choice
+        options:
+          - cout
+          - panel
+        default: cout
+concurrency:
+  group: cout-geelark
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+      - name: Cout GeeLark du jour
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          SALON_COUT_GEELARK: ${{ secrets.SALON_COUT_GEELARK }}
+          ACTION: ${{ github.event.inputs.action || github.event.client_payload.action || 'cout' }}
+          INTERACTION_TOKEN: ${{ github.event.client_payload.token }}
+          APPLICATION_ID: ${{ github.event.client_payload.application_id }}
+        run: node cout-geelark.js

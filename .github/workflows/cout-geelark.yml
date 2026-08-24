@@ -1,6 +1,63 @@
 name: cout-geelark
 on:
   repository_dispatch:
+    types: [cout_geelark_jour, cout_geelark_hier, cout_geelark_semaine, cout_geelark_mois]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "cout = poster le cout · panel = (re)poster/mettre a jour les boutons · record = enregistrer l'historique"
+        type: choice
+        options:
+          - cout
+          - panel
+          - record
+        default: cout
+      custom_id:
+        description: "(cout) periode a tester : cout_geelark_jour | cout_geelark_hier | cout_geelark_semaine | cout_geelark_mois"
+        required: false
+        default: cout_geelark_jour
+  schedule:
+    - cron: '0 2 * * *'   # chaque jour 02:00 UTC -> enregistre les jours complets dans l'historique
+concurrency:
+  group: cout-geelark
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+      - name: Cout GeeLark
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          SALON_COUT_GEELARK: ${{ secrets.SALON_COUT_GEELARK }}
+          ACTION: ${{ github.event.inputs.action || github.event.client_payload.action || (github.event_name == 'schedule' && 'record' || 'cout') }}
+          CUSTOM_ID: ${{ github.event.client_payload.custom_id || github.event.inputs.custom_id }}
+          INTERACTION_TOKEN: ${{ github.event.client_payload.token }}
+          APPLICATION_ID: ${{ github.event.client_payload.application_id }}
+        run: node cout-geelark.js
+      - name: Sauver l'historique si modifie
+        run: |
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git config user.name "bot-gk[bot]"
+            git config user.email "bot-gk@users.noreply.github.com"
+            git add data/cout-historique.json
+            git commit -m "cout: historique quotidien"
+            git push
+          else
+            echo "Pas de changement d'historique."
+          fi
+name: cout-geelark
+on:
+  repository_dispatch:
     types: [cout_geelark_jour]
   workflow_dispatch:
     inputs:

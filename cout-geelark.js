@@ -400,6 +400,22 @@ async function main() {
     return
   }
 
+  // Mode snapshot : releve le solde add-on a minuit (Paris) pour "aujourd'hui" en temps reel.
+  if (ACTION === 'snapshot') {
+    const hParis = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()))
+    if (hParis !== 0) { console.log('[snapshot] pas minuit Paris (' + hParis + 'h) -> ignore'); return }
+    const w = await soldeWallet().catch(e => ({ error: 'exception:' + (e && e.message) }))
+    if (!w || w.error) { console.error('[snapshot] wallet KO : ' + (w && w.error)); return }
+    const aujD = dateParis(now)
+    if (!hist._midnight) hist._midnight = {}
+    hist._midnight[aujD] = Math.round(w.availableTimeAddOn)
+    const cles = Object.keys(hist._midnight).sort()
+    while (cles.length > 40) { delete hist._midnight[cles.shift()] }
+    ecrireHistorique(hist)
+    console.log('[snapshot] solde add-on minuit ' + aujD + ' = ' + hist._midnight[aujD])
+    return
+  }
+
   // Determine la periode depuis le custom_id du bouton.
   const P = PERIODES[CUSTOM_ID] || PERIODES.cout_geelark_jour
   let debutMs, finMs
@@ -418,6 +434,15 @@ async function main() {
   const wallet = await soldeWallet().catch(e => ({ error: 'exception:' + (e && e.message) }))
   if (wallet && wallet.error) console.error('[cout] wallet KO : ' + wallet.error + ' ' + (wallet.msg || ''))
   else console.log('[cout] wallet balance=' + (wallet && wallet.balance) + ' addon=' + (wallet && wallet.availableTimeAddOn))
+  // "Aujourd'hui" en temps reel : (solde add-on a minuit) - (solde maintenant).
+  // Capte meme les sessions en cours (la facturation par transaction est en retard).
+  if (P.cle === 'jour' && wallet && !wallet.error && hist._midnight) {
+    const mid = hist._midnight[dateParis(now)]
+    if (mid != null) {
+      somme.minutes = Math.max(0, Math.round(mid - wallet.availableTimeAddOn))
+      note = (note ? note + ' · ' : '') + '⚡ aujourd\'hui en temps réel (solde add-on)'
+    }
+  }
   console.log('[cout] periode=' + P.cle + ' minutes=' + somme.minutes + ' cash=' + somme.cash + ' jours=' + somme.joursConnus + '/' + somme.joursTotal)
 
   const embed = construireEmbed(P, somme, wallet, rythme, note)

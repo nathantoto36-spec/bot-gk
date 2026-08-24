@@ -11,13 +11,16 @@ on:
           - cout
           - panel
           - record
+          - snapshot
         default: cout
       custom_id:
         description: "(cout) periode a tester : cout_geelark_jour | cout_geelark_hier | cout_geelark_semaine | cout_geelark_mois"
         required: false
         default: cout_geelark_jour
   schedule:
-    - cron: '0 2 * * *'   # chaque jour 02:00 UTC -> enregistre les jours complets dans l'historique
+    - cron: '0 2 * * *'    # 02:00 UTC -> enregistre les jours complets dans l'historique (record)
+    - cron: '0 22 * * *'   # 22:00 UTC = minuit Paris (ete) -> releve solde add-on (snapshot)
+    - cron: '0 23 * * *'   # 23:00 UTC = minuit Paris (hiver) -> releve solde add-on (snapshot)
 concurrency:
   group: cout-geelark
   cancel-in-progress: false
@@ -39,7 +42,7 @@ jobs:
           GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
           GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
           SALON_COUT_GEELARK: ${{ secrets.SALON_COUT_GEELARK }}
-          ACTION: ${{ github.event.inputs.action || github.event.client_payload.action || (github.event_name == 'schedule' && 'record' || 'cout') }}
+          ACTION: ${{ github.event.inputs.action || github.event.client_payload.action || (github.event.schedule == '0 22 * * *' && 'snapshot') || (github.event.schedule == '0 23 * * *' && 'snapshot') || (github.event_name == 'schedule' && 'record') || 'cout' }}
           CUSTOM_ID: ${{ github.event.client_payload.custom_id || github.event.inputs.custom_id }}
           INTERACTION_TOKEN: ${{ github.event.client_payload.token }}
           APPLICATION_ID: ${{ github.event.client_payload.application_id }}

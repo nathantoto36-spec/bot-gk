@@ -12,7 +12,7 @@
 // Source des chiffres : la facturation officielle GeeLark.
 //   POST /open/v1/pay/wallet                 -> solde + minutes add-on restantes
 //   POST /open/v1/billing/transaction/detail -> transactions du jour (amount,
-//        usedTime en secondes, type, chargeType, createdTime, envId...)
+//        usedTime en MINUTES, type, chargeType, createdTime, envId...)
 // ---------------------------------------------------------------------------
 
 import crypto from 'node:crypto'
@@ -102,6 +102,7 @@ const INTERACTION_TOKEN = process.env.INTERACTION_TOKEN || ''
 const APPLICATION_ID = process.env.APPLICATION_ID || ''
 const CUSTOM_ID = process.env.COUT_BOUTON_ID || 'cout_geelark_jour'
 const ABO_MENSUEL = parseFloat(process.env.COUT_ABONNEMENT_MENSUEL || '269')
+const PRIX_MINUTE = parseFloat(process.env.COUT_PRIX_MINUTE || '0') // prix d'1 min add-on (0 = ne pas convertir en $)
 const DEVISE = process.env.COUT_DEVISE || '$'
 
 // --- Utilitaires -----------------------------------------------------------
@@ -225,7 +226,8 @@ function classer(txs, debut, fin) {
     const cle = String(t.chargeType || t.type || 'autre')
     parType[cle] = (parType[cle] || 0) + a
   }
-  return { n, net, positifs, negatifs, secondes, minutes: Math.round(secondes / 60), envs: envs.size, parType }
+  // usedTime GeeLark est deja en MINUTES (verifie via le registre reel) -> pas de /60.
+  return { n, net, positifs, negatifs, secondes, minutes: Math.round(secondes), envs: envs.size, parType }
 }
 
 function construireEmbed(jour, hier, wallet, note) {
@@ -233,26 +235,42 @@ function construireEmbed(jour, hier, wallet, note) {
   const partAbo = ABO_MENSUEL > 0 ? ABO_MENSUEL / joursDansMoisParis() : 0
 
   const lignes = []
-  lignes.push('**' + argent(coutJour) + '** facturé aujourd\'hui par GeeLark ' + '(' + jour.n + ' transaction' + (jour.n > 1 ? 's' : '') + ')')
-  if (jour.minutes > 0 || jour.envs > 0) {
-    lignes.push('⏱️ **' + jour.minutes.toLocaleString('fr-FR') + ' min** de cloud consommées · ' + jour.envs + ' appareil' + (jour.envs > 1 ? 's' : ''))
+
+  // 1) HEBERGEMENT (abonnement fixe, lisse par jour) -- separe des minutes.
+  if (partAbo > 0) {
+    lignes.push('🖥️ **Hébergement** : ~' + argent(partAbo) + '/jour  _(abonnement ' + argent(ABO_MENSUEL) + '/mois)_')
   }
+
+  // 2) MINUTES cloud consommees = le vrai cout variable (prepaye, add-on).
+  const valMin = PRIX_MINUTE > 0 ? '  ≈ ' + argent(jour.minutes * PRIX_MINUTE) : ''
+  lignes.push('⏱️ **Minutes consommées** : **' + jour.minutes.toLocaleString('fr-FR') + ' min** aujourd\'hui · ' +
+    jour.envs + ' appareil' + (jour.envs > 1 ? 's' : '') + valMin)
+  lignes.push('   ↳ hier : ' + hier.minutes.toLocaleString('fr-FR') + ' min' + (PRIX_MINUTE > 0 ? '  ≈ ' + argent(hier.minutes * PRIX_MINUTE) : ''))
+
+  // 3) ADD-ON restant + autonomie estimee (au rythme de la veille).
+  if (wallet && !wallet.error) {
+    const rythme = hier.minutes > 0 ? hier.minutes : jour.minutes
+    const jours = rythme > 0 ? wallet.availableTimeAddOn / rythme : null
+    lignes.push('📉 **Add-on restant** : ' + wallet.availableTimeAddOn.toLocaleString('fr-FR') + ' min' +
+      (jours ? '  → autonomie ~**' + (Math.round(jours * 10) / 10).toLocaleString('fr-FR') + ' jours** à ce rythme' : ''))
+  }
+
+  // 4) DEPENSE CASH reelle du jour (recharges / achats) -- souvent 0 en prepaye.
+  lignes.push(String.fromCharCode(10) + '💵 **Dépensé cash aujourd\'hui** : ' + argent(coutJour) +
+    (coutJour < 0.005 ? '  _(rien débité — tu consommes tes minutes prépayées)_' : ''))
   const cles = Object.keys(jour.parType).filter(k => Math.abs(jour.parType[k]) > 0.0001)
   if (cles.length) {
     const detail = cles.map(k => '• ' + libelleType(k) + ' : ' + argent(Math.abs(jour.parType[k]))).join(String.fromCharCode(10))
-    lignes.push(String.fromCharCode(10) + '__Détail :__' + String.fromCharCode(10) + detail)
+    lignes.push('__Détail des dépenses :__' + String.fromCharCode(10) + detail)
   }
-  lignes.push(String.fromCharCode(10) + '📅 Hier : **' + argent(Math.abs(hier.net)) + '**' + (hier.minutes ? ' · ' + hier.minutes.toLocaleString('fr-FR') + ' min' : ''))
-  if (partAbo > 0) {
-    lignes.push('🧾 Abonnement lissé : ~' + argent(partAbo) + '/jour (' + argent(ABO_MENSUEL) + '/mois)')
-  }
+
+  // 5) SOLDE + PROMOTION (bonus).
   if (wallet && !wallet.error) {
-    lignes.push(String.fromCharCode(10) + '💰 Solde : **' + argent(wallet.balance) + '**' +
-      (wallet.giftMoney ? ' · 🎁 ' + argent(wallet.giftMoney) : '') +
-      ' · ⏳ ' + wallet.availableTimeAddOn.toLocaleString('fr-FR') + ' min add-on restantes')
+    lignes.push('💰 **Solde wallet** : ' + argent(wallet.balance) + ' · 🎁 bonus : ' + argent(wallet.giftMoney))
   } else if (wallet && wallet.error) {
-    lignes.push(String.fromCharCode(10) + '💰 Solde : indisponible (' + wallet.error + ')')
+    lignes.push('💰 Solde : indisponible (' + wallet.error + ')')
   }
+
   if (note) lignes.push(String.fromCharCode(10) + '_' + note + '_')
   lignes.push('_maj ' + horodatage() + '_')
 

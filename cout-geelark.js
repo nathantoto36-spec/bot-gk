@@ -106,7 +106,8 @@ const INTERACTION_TOKEN = process.env.INTERACTION_TOKEN || ''
 const APPLICATION_ID = process.env.APPLICATION_ID || ''
 const CUSTOM_ID = process.env.CUSTOM_ID || process.env.COUT_BOUTON_ID || 'cout_geelark_jour'
 const ABO_MENSUEL = parseFloat(process.env.COUT_ABONNEMENT_MENSUEL || '269')
-const PRIX_MINUTE = parseFloat(process.env.COUT_PRIX_MINUTE || '0') // prix d'1 min add-on (0 = pas de conversion $)
+// Prix reel d'1 min add-on GeeLark : pack 50 000 min = $315 (remise -10% incluse) => $0.0063/min.
+const PRIX_MINUTE = parseFloat(process.env.COUT_PRIX_MINUTE || '0.0063') // 0 = pas de conversion $
 const DEVISE = process.env.COUT_DEVISE || '$'
 const FICHIER_HIST = process.env.COUT_HIST_FICHIER || 'data/cout-historique.json'
 
@@ -302,20 +303,27 @@ function construireEmbed(P, s, wallet, rythme, note) {
   const abo = partAbo * s.joursTotal
   const lignes = []
 
-  // Minutes consommees (le vrai cout variable, prepaye).
-  const valMin = PRIX_MINUTE > 0 ? '  ≈ ' + argent(s.minutes * PRIX_MINUTE) : ''
-  lignes.push('⏱️ **Minutes consommées** : **' + nb(s.minutes) + ' min**' + valMin +
+  // Minutes consommees converties en argent reel (cout variable, prepaye via add-on).
+  const coutMin = PRIX_MINUTE > 0 ? s.minutes * PRIX_MINUTE : 0
+  const valMin = PRIX_MINUTE > 0 ? '  →  **≈ ' + argent(coutMin) + '**' : ''
+  lignes.push('⏱️ **Minutes consommées** : ' + nb(s.minutes) + ' min' + valMin +
     (estJourUnique && s.envs ? '  ·  ' + s.envs + ' appareil' + (s.envs > 1 ? 's' : '') : ''))
+  if (PRIX_MINUTE > 0) lignes.push('_(valeur add-on : ' + argent(PRIX_MINUTE) + '/min · pack 50 000 min = ' + argent(PRIX_MINUTE * 50000) + ')_')
 
   // Hebergement (abonnement lisse) sur la periode.
   if (partAbo > 0) {
-    lignes.push('🖥️ **Hébergement** : ' + (estJourUnique ? '~' + argent(partAbo) + '/jour' : argent(abo) + ' sur ' + s.joursTotal + ' j') +
+    lignes.push(String.fromCharCode(10) + '🖥️ **Hébergement** : ' + (estJourUnique ? '~' + argent(partAbo) + '/jour' : argent(abo) + ' sur ' + s.joursTotal + ' j') +
       '  _(' + argent(ABO_MENSUEL) + '/mois)_')
   }
 
+  // Cout total estime = minutes (variable) + hebergement (fixe prorata).
+  if (PRIX_MINUTE > 0 || partAbo > 0) {
+    lignes.push('🧮 **Coût total estimé** : **≈ ' + argent(coutMin + abo) + '**  _(minutes + hébergement)_')
+  }
+
   // Depense cash reelle (recharges/achats) - souvent 0 en prepaye.
-  lignes.push('💵 **Dépensé cash** : ' + argent(Math.abs(s.cash)) +
-    (Math.abs(s.cash) < 0.005 ? '  _(rien débité — tu consommes tes minutes prépayées)_' : ''))
+  lignes.push(String.fromCharCode(10) + '💵 **Dépensé cash** : ' + argent(Math.abs(s.cash)) +
+    (Math.abs(s.cash) < 0.005 ? '  _(rien débité — déjà payé d\'avance)_' : ''))
 
   // Solde + add-on restant + autonomie.
   if (wallet && !wallet.error) {

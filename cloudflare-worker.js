@@ -48,7 +48,18 @@ function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-async function declencherGitHub(env, interaction) {
+// Routage generique custom_id -> (event_type GitHub + action).
+// Un bouton dont le custom_id n'est PAS liste ci-dessous declenche
+// event_type = custom_id (action 'auto'). Donc pour ajouter un NOUVEAU bouton,
+// il suffit de creer un workflow qui ecoute repository_dispatch [ce custom_id] :
+// PLUS BESOIN de retoucher ce worker.
+const ROUTES = {
+  // Le bouton classement existe avant ce systeme : son event GitHub
+  // ('classement_legende') differe de son custom_id -> alias explicite.
+  classement_sans_legende: { event: 'classement_legende', action: 'classement' },
+}
+
+async function declencherGitHub(env, interaction, route) {
   const owner = env.GH_OWNER || 'nathantoto36-spec'
   const repo = env.GH_REPO || 'bot-gk'
   const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/dispatches'
@@ -63,9 +74,10 @@ async function declencherGitHub(env, interaction) {
         'User-Agent': 'bot-gk-worker',
       },
       body: JSON.stringify({
-        event_type: 'classement_legende',
+        event_type: route.event,
         client_payload: {
-          action: 'classement',
+          action: route.action,
+          custom_id: interaction.data && interaction.data.custom_id,
           token: interaction.token,
           application_id: interaction.application_id,
           channel_id: interaction.channel_id,
@@ -116,13 +128,14 @@ export default {
     // 1 = PING (validation de l'endpoint par Discord)
     if (interaction.type === 1) return json({ type: 1 })
 
-    // 3 = clic sur un composant (bouton)
-    const boutonId = env.BOUTON_ID || 'classement_sans_legende'
-    if (interaction.type === 3 && interaction.data && interaction.data.custom_id === boutonId) {
-      ctx.waitUntil(declencherGitHub(env, interaction))
-      // type 5 = reponse differee : Discord affiche "réfléchit...",
-      // le workflow GitHub editera ce message avec le classement.
-      return json({ type: 5, data: { flags: 64 } }) // 64 = ephemere (visible par le cliqueur seul)
+    // 3 = clic sur un composant (bouton) -> routage generique par custom_id.
+    if (interaction.type === 3 && interaction.data && interaction.data.custom_id) {
+      const cid = interaction.data.custom_id
+      const route = ROUTES[cid] || { event: cid, action: 'auto' }
+      ctx.waitUntil(declencherGitHub(env, interaction, route))
+      // type 5 = reponse differee EPHEMERE : Discord affiche "réfléchit...",
+      // le workflow GitHub editera ce message (visible par le cliqueur seul).
+      return json({ type: 5, data: { flags: 64 } }) // 64 = ephemere
     }
 
     return json({ type: 4, data: { content: 'Interaction non reconnue.', flags: 64 } })

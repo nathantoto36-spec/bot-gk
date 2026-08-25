@@ -1,6 +1,6 @@
 {
   "_comment": "Planning des posts en teste. Le bot rattache un reel au creneau programme le plus proche pour savoir QUELLE video teste a genere les vues. Cles normalisees ; vrais pseudos dans pseudos. Creneaux annules exclus.",
-  "genere": "2026-08-25T19:01:17.241Z",
+  "genere": "2026-08-25T20:32:20.401Z",
   "legende": "No makeup\n#yummy #instamood #reel #explore #instatravel",
   "pseudos": {
     "indysstellasx": "indysstellasx",
@@ -76,7 +76,14 @@
     "tissalilamy": "tissalilamy",
     "annishaxcliara": "annishaxcliara",
     "emilymp_x": "emilymp.x",
-    "katy_sofiar": "katy.sofiar"
+    "katy_sofiar": "katy.sofiar",
+    "belvidasgbzx": "belvidasgbzx",
+    "oli_pettry": "oli.pettry",
+    "muci_precious": "muci.precious",
+    "hamminabella": "hamminabella",
+    "fannillabyki": "fannillabyki",
+    "irismoop": "irismoop",
+    "degolilyx": "degolilyx"
   },
   "groupes": {
     "indysstellasx": "tkanuya account 2",
@@ -152,7 +159,14 @@
     "tissalilamy": "✔️tkanuya account",
     "annishaxcliara": "tkanuya account 2",
     "emilymp_x": "tkanuya account 2",
-    "katy_sofiar": "✔️tkanuya account"
+    "katy_sofiar": "✔️tkanuya account",
+    "belvidasgbzx": "✔️tkanuya account",
+    "oli_pettry": "tkanuya account 2",
+    "muci_precious": "tkanuya account 2",
+    "hamminabella": "✔️tkanuya account",
+    "fannillabyki": "✔️tkanuya account",
+    "irismoop": "✔️tkanuya account",
+    "degolilyx": "✔️tkanuya account"
   },
   "comptes": {
     "indysstellasx": [
@@ -3446,6 +3460,215 @@
         "epoch": 1787772240,
         "video": "teste1",
         "taskId": "634438140777464215"
+      }
+    ],
+    "belvidasgbzx": [
+      {
+        "epoch": 1787690880,
+        "video": "teste4",
+        "taskId": "634447312613015912"
+      },
+      {
+        "epoch": 1787699880,
+        "video": "teste3",
+        "taskId": "634447315028935016"
+      },
+      {
+        "epoch": 1787718600,
+        "video": "teste1",
+        "taskId": "634447319877550440"
+      },
+      {
+        "epoch": 1787724240,
+        "video": "teste5",
+        "taskId": "634447320481530216"
+      },
+      {
+        "epoch": 1787737320,
+        "video": "teste2",
+        "taskId": "634447322897449320"
+      },
+      {
+        "epoch": 1787756040,
+        "video": "teste3",
+        "taskId": "634447327729287528"
+      },
+      {
+        "epoch": 1787757600,
+        "video": "teste2",
+        "taskId": "634447328350044567"
+      },
+      {
+        "epoch": 1787774760,
+        "video": "teste5",
+        "taskId": "634447330816295319"
+      },
+      {
+        "epoch": 1787790960,
+        "video": "teste4",
+        "taskId": "634447335648133300"
+      }
+    ],
+    "oli_pettry": [
+      {
+        "epoch": 1787694240,
+        "video": "teste3",
+        "taskId": "634447313216995688"
+      },
+      {
+        "epoch": 1787712000,
+        "video": "teste5",
+        "taskId": "634447316857651380"
+      },
+      {
+        "epoch": 1787729760,
+        "video": "teste1",
+        "taskId": "634447321068732776"
+      },
+      {
+        "epoch": 1787747520,
+        "video": "teste2",
+        "taskId": "634447325934125236"
+      },
+      {
+        "epoch": 1787765280,
+        "video": "teste4",
+        "taskId": "634447328987578728"
+      },
+      {
+        "epoch": 1787783040,
+        "video": "teste1",
+        "taskId": "634447333836193972"
+      }
+    ],
+    "muci_precious": [
+      {
+        "epoch": 1787695680,
+        "video": "teste4",
+        "taskId": "634447313820975511"
+      },
+      {
+        "epoch": 1787713440,
+        "video": "teste2",
+        "taskId": "634447318669590888"
+      },
+      {
+        "epoch": 1787731200,
+        "video": "teste3",
+        "taskId": "634447321672712599"
+      },
+      {
+        "epoch": 1787748960,
+        "video": "teste1",
+        "taskId": "634447326538105192"
+      },
+      {
+        "epoch": 1787766720,
+        "video": "teste5",
+        "taskId": "634447329591558551"
+      },
+      {
+        "epoch": 1787784480,
+        "video": "teste2",
+        "taskId": "634447334440173928"
+      }
+    ],
+    "hamminabella": [
+      {
+        "epoch": 1787696520,
+        "video": "teste2",
+        "taskId": "634447314424955287"
+      },
+      {
+        "epoch": 1787711040,
+        "video": "teste3",
+        "taskId": "634447316253671784"
+      },
+      {
+        "epoch": 1787715240,
+        "video": "teste1",
+        "taskId": "634447319273570711"
+      },
+      {
+        "epoch": 1787733960,
+        "video": "teste4",
+        "taskId": "634447322293469591"
+      },
+      {
+        "epoch": 1787744400,
+        "video": "teste5",
+        "taskId": "634447324105408692"
+      },
+      {
+        "epoch": 1787752680,
+        "video": "teste4",
+        "taskId": "634447327125307752"
+      },
+      {
+        "epoch": 1787771400,
+        "video": "teste3",
+        "taskId": "634447330212315316"
+      },
+      {
+        "epoch": 1787777760,
+        "video": "teste1",
+        "taskId": "634447332024254824"
+      },
+      {
+        "epoch": 1787790120,
+        "video": "teste2",
+        "taskId": "634447335044153704"
+      }
+    ],
+    "fannillabyki": [
+      {
+        "epoch": 1787709840,
+        "video": "teste4",
+        "taskId": "634447315649692055"
+      },
+      {
+        "epoch": 1787743200,
+        "video": "teste5",
+        "taskId": "634447323484651927"
+      },
+      {
+        "epoch": 1787776560,
+        "video": "teste3",
+        "taskId": "634447331420274868"
+      }
+    ],
+    "irismoop": [
+      {
+        "epoch": 1787712720,
+        "video": "teste2",
+        "taskId": "634447317461631336"
+      },
+      {
+        "epoch": 1787746080,
+        "video": "teste5",
+        "taskId": "634447324709388468"
+      },
+      {
+        "epoch": 1787779440,
+        "video": "teste1",
+        "taskId": "634447332628234647"
+      }
+    ],
+    "degolilyx": [
+      {
+        "epoch": 1787713200,
+        "video": "teste2",
+        "taskId": "634447318065610932"
+      },
+      {
+        "epoch": 1787746560,
+        "video": "teste1",
+        "taskId": "634447325313368471"
+      },
+      {
+        "epoch": 1787779920,
+        "video": "teste4",
+        "taskId": "634447333232214376"
       }
     ]
   },

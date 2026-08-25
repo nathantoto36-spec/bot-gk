@@ -2,18 +2,18 @@ name: teste
 
 # Suivi des videos teste1 -> teste5 sur les comptes a faible vue.
 #
-# Toutes les 10 minutes : releve les vues, compare au releve precedent stocke
+# Une fois par heure : releve les vues, compare au releve precedent stocke
 # dans data/vues-teste.json, et poste dans #compte-faible-vue-teste les reels
 # qui viennent de franchir 1h, 3h, 6h ou 10h.
 #
-# L'ecart de 10 minutes entre deux passages EST la fenetre de tendance : c'est
+# L'ecart d'une heure entre deux passages EST la fenetre de tendance : c'est
 # ce qui permet de dire si un reel monte encore (vert) ou stagne (rouge).
 # GitHub peut retarder un passage quand ses runners sont charges ; le message
 # affiche alors l'ecart reel, il reste donc juste.
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 concurrency:

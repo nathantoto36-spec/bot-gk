@@ -248,16 +248,21 @@ function tendance(code, vues, maintenant) {
     }
   }
   const minutes = Math.round((maintenant - prec.t) / 60000)
+  // Le bot passe une fois par heure : on dit "la derniere heure" plutot que
+  // "les 60 dernieres minutes", et on donne l'ecart reel s'il a derape.
+  const depuis = minutes < 90
+    ? (minutes >= 50 ? 'la dernière heure' : 'les ' + minutes + ' dernières minutes')
+    : 'les ' + (minutes / 60).toFixed(1).replace('.0', '') + ' dernières heures'
   const delta = (vues || 0) - (prec.vues || 0)
   if (delta > 0) {
     return {
       couleur: 0x2ecc71, emoji: '🟢',
-      texte: '**+' + nombre(delta) + ' vues** sur les ' + minutes + ' dernières minutes — ça monte.',
+      texte: '**+' + nombre(delta) + ' vues** sur ' + depuis + ' — ça monte.',
     }
   }
   return {
     couleur: 0xe74c3c, emoji: '🔴',
-    texte: 'Aucune vue gagnée sur les ' + minutes + ' dernières minutes — ça ne monte pas.',
+    texte: 'Aucune vue gagnée sur ' + depuis + ' — ça ne monte pas.',
   }
 }
 
@@ -268,7 +273,7 @@ function verdict(vues) {
   return { emoji: '🌱', label: 'DEMARRAGE', conseil: 'Ca demarre doucement. Pour le prochain : hook plus fort des la 1re seconde, son tendance, et poste a ta meilleure heure.' }
 }
 
-function embedTeste(username, reel, palier, m, maintenant) {
+function embedTeste(username, reel, palier, m, maintenant, ageH) {
   const v = verdict(reel.vues)
   const t = tendance(reel.code, reel.vues, maintenant)
   const atteint = (reel.vues || 0) >= SEUIL
@@ -284,7 +289,12 @@ function embedTeste(username, reel, palier, m, maintenant) {
   l.push('`' + username + '`')
   l.push('👁️ **' + nombre(reel.vues) + '** vues · ❤️ ' + nombre(reel.likes) +
          ' · 💬 ' + nombre(reel.commentaires) + ' · 📊 ' + taux + '%')
-  l.push('🕒 Publié **il y a ' + palier + 'h** · ' +
+  // Le bot passe une fois par heure : le palier peut etre releve un peu apres
+  // l'heure pile. On affiche l'age reel quand il s'ecarte du palier.
+  const ageReel = ageH == null ? null : Math.round(ageH * 10) / 10
+  const precision = (ageReel != null && Math.abs(ageReel - palier) >= 0.3)
+    ? ' _(relevé à ' + String(ageReel).replace('.', ',') + 'h)_' : ''
+  l.push('🕒 Palier **' + palier + 'h**' + precision + ' · publié le ' +
          new Date(reel.posteA).toLocaleString('fr-FR', {
            timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit',
            hour: '2-digit', minute: '2-digit',
@@ -561,7 +571,9 @@ async function cycle() {
     if (r.erreur) {
       erreurs++
       console.warn('[insta] ' + u + ' -> ' + r.erreur)
-      await dodo(PAUSE_INSTA_MS)
+      // Rate limit : on ralentit franchement au lieu d'enchainer, Instagram
+      // reouvre souvent la porte au bout de quelques dizaines de secondes.
+      await dodo(r.erreur === 'rate_limit' ? Math.min(PAUSE_INSTA_MS * 8, 20000) : PAUSE_INSTA_MS)
       continue
     }
     const reelsVus = (r.reels || []).filter(x => x.code && x.posteA)
@@ -597,7 +609,7 @@ async function cycle() {
 
       for (const p of PALIERS) {
         if (ageH >= p && !dejaPoste.has(reel.code + ':' + p)) {
-          aPoster.push({ u, reel, p, m })
+          aPoster.push({ u, reel, p, m, ageH })
         }
       }
       // Deux raisons d'atterrir dans le salon des comptes faibles :
@@ -625,6 +637,15 @@ async function cycle() {
     await dodo(PAUSE_INSTA_MS)
   }
 
+  // Instagram limite parfois le runner GitHub (HTTP 429) : le cycle ne voit
+  // alors rien, et ecraser l'etat avec du vide ferait perdre la tendance ET le
+  // classement. On sort sans rien toucher : le passage suivant reprendra.
+  if (comptes.length > 0 && erreurs >= Math.max(3, comptes.length * 0.4)) {
+    console.warn('[teste] ' + erreurs + '/' + comptes.length + ' comptes en erreur Instagram ' +
+                 '(rate limit ?) — rien nest publie ni ecrase, on garde letat precedent.')
+    return
+  }
+
   if (CLASSEMENT_SEUL) { aPoster.length = 0; faibles.length = 0; forts.length = 0 }
 
   aPoster.sort((a, b) => a.reel.posteA - b.reel.posteA || a.p - b.p)
@@ -632,7 +653,7 @@ async function cycle() {
   for (const it of aPoster) {
     try {
       await discord('POST', '/channels/' + SALON_TESTE + '/messages',
-        { embeds: [embedTeste(it.u, it.reel, it.p, it.m, maintenant)] })
+        { embeds: [embedTeste(it.u, it.reel, it.p, it.m, maintenant, it.ageH)] })
       postes++
     } catch (e) {
       console.error('[discord] envoi echoue (' + it.u + ') : ' + e.message)
@@ -662,8 +683,16 @@ async function cycle() {
     await dodo(PAUSE_DISCORD_MS)
   }
 
-  // On ne garde que les reels encore dans la fenetre : le fichier ne gonfle pas.
-  etat = { maj: new Date().toISOString(), releves: nouveauxReleves }
+  // Fusion plutot que remplacement : un compte que ce passage n'a pas pu lire
+  // garde son dernier releve connu. On purge seulement ce qui est sorti de la
+  // fenetre de suivi, pour que le fichier ne gonfle pas.
+  const limite = maintenant - (PALIER_MAX_H + 4) * 3600e3
+  const releves = {}
+  for (const [code, r] of Object.entries(etat.releves || {})) {
+    if (r && r.t && r.t >= limite) releves[code] = r
+  }
+  Object.assign(releves, nouveauxReleves)
+  etat = { maj: new Date().toISOString(), releves }
   fs.mkdirSync(path.dirname(FICHIER_ETAT), { recursive: true })
   fs.writeFileSync(FICHIER_ETAT, JSON.stringify(etat, null, 2))
 

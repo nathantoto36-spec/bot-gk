@@ -13,7 +13,10 @@
 //      le script n'a pas de memoire entre deux executions
 //   4. poste un feedback par palier franchi (1h, 3h, 6h, 10h) dans SALON_TESTE
 //   5. liste dans SALON_FAIBLE les comptes encore sous 100 vues apres 6h
-//   6. reecrit data/vues-teste.json (le workflow le commit)
+//   6. reecrit SALON_CLASSEMENT : classement de tous les comptes en teste, par
+//      moyenne de vues, avec les vues de chacun de leurs postes teste
+//   7. reecrit data/vues-teste.json et data/historique-teste.json (commit par
+//      le workflow)
 //
 // Il n'annonce QUE les reels rattachables a un creneau programme portant une
 // video teste : sans ce rattachement on ne saurait pas quelle video a produit
@@ -31,6 +34,9 @@ const SALON_TESTE = process.env.SALON_TESTE || '1541707020413968444'
 const SALON_FAIBLE = process.env.SALON_FAIBLE || '1541844783193129081'
 // Salon des comptes qui ont franchi le seuil, quel que soit le temps mis.
 const SALON_FORT = process.env.SALON_FORT || '1541883607478702261'
+// Salon du classement : reecrit a chaque passage, il montre l'etat courant de
+// tous les comptes en teste (moyenne + vues de chaque poste teste).
+const SALON_CLASSEMENT = process.env.SALON_CLASSEMENT || '1541918389876957184'
 
 const PALIERS = (process.env.PALIERS_TESTE || '1,3,6,10')
   .split(',').map(x => parseFloat(x.trim())).filter(n => n > 0).sort((a, b) => a - b)
@@ -40,9 +46,15 @@ const SEUIL = parseInt(process.env.SEUIL_VUES || '200', 10)
 const SEUIL_FAIBLE = parseInt(process.env.SEUIL_FAIBLE || '100', 10)
 const PALIER_FAIBLE = parseFloat(process.env.PALIER_FAIBLE || '6')
 
+// Mise au point : ne toucher qu'au salon classement, sans reposter de feedback
+// ni de signalement. Sert a verifier un rendu sans polluer les autres salons.
+const CLASSEMENT_SEUL = process.env.CLASSEMENT_SEUL === '1'
+
 const PAUSE_INSTA_MS = parseInt(process.env.PAUSE_INSTA_MS || '1800', 10)
 const PAUSE_DISCORD_MS = 900
 const PAGES_HISTO = 3
+// Profondeur maximale dans le fil Instagram quand il manque des postes teste.
+const PAGES_INSTA_MAX = parseInt(process.env.PAGES_INSTA_MAX || '6', 10)
 
 // Tolerance entre l'heure programmee et la publication reelle : un flow GeeLark
 // met 2 a 4 min, plus le temps de demarrage du telephone.
@@ -53,6 +65,10 @@ const AVANCE_MS = 5 * 60 * 1000
 const AMBIGU_MS = 12 * 60 * 1000
 
 const FICHIER_ETAT = process.env.FICHIER_ETAT || 'data/vues-teste.json'
+// Memoire longue : tous les postes teste jamais vus, avec leur meilleur releve
+// de vues. C'est la base du classement — sans ca on perdrait les postes sortis
+// de la fenetre des 12h.
+const FICHIER_HISTO = process.env.FICHIER_HISTO || 'data/historique-teste.json'
 const PLANNING = process.env.FICHIER_PLANNING || 'teste/planning-teste.json'
 
 if (!TOKEN) {
@@ -129,25 +145,49 @@ function comptesSuivis() {
 }
 function groupeDe(u) { return (planning.groupes || {})[norm(u)] || '(inconnu)' }
 
-function videoDuReel(username, posteA) {
-  const creneaux = (planning.comptes || {})[norm(username)]
-  if (!creneaux || !creneaux.length || !posteA) return null
-  const candidats = []
-  for (const c of creneaux) {
-    const retard = posteA - c.epoch * 1000
-    if (retard < -AVANCE_MS || retard > TOLERANCE_MS) continue
-    candidats.push({ retard: Math.abs(retard), c })
+/**
+ * Attribue les reels d'un compte a ses creneaux, UN reel par creneau.
+ *
+ * videoDuReel() pris reel par reel peut donner le meme creneau a deux reels
+ * differents (un ancien poste qui traine a moins de 45 min d'un creneau teste
+ * vole la place du vrai). On resout donc le compte entier d'un coup : on classe
+ * toutes les paires (reel, creneau) par ecart croissant et on sert la plus
+ * proche d'abord, chaque creneau et chaque reel n'etant servis qu'une fois.
+ *
+ * @returns Map code -> { video, ecartMin, ambigu }
+ */
+function attribuerVideos(username, reels) {
+  const creneaux = (planning.comptes || {})[norm(username)] || []
+  const paires = []
+  for (const reel of reels) {
+    if (!reel.code || !reel.posteA) continue
+    for (let i = 0; i < creneaux.length; i++) {
+      const retard = reel.posteA - creneaux[i].epoch * 1000
+      if (retard < -AVANCE_MS || retard > TOLERANCE_MS) continue
+      paires.push({ code: reel.code, i, ecart: Math.abs(retard) })
+    }
   }
-  if (!candidats.length) return null
-  candidats.sort((a, b) => a.retard - b.retard)
-  const meilleur = candidats[0]
-  const rival = candidats.find(x => x.c.video !== meilleur.c.video &&
-                                    Math.abs(x.retard - meilleur.retard) <= AMBIGU_MS)
-  return {
-    video: meilleur.c.video,
-    ecartMin: Math.round(meilleur.retard / 60000),
-    ambigu: rival ? rival.c.video : null,
+  paires.sort((a, b) => a.ecart - b.ecart)
+
+  const prisReel = new Set()
+  const prisCreneau = new Set()
+  const res = new Map()
+  for (const p of paires) {
+    if (prisReel.has(p.code) || prisCreneau.has(p.i)) continue
+    prisReel.add(p.code); prisCreneau.add(p.i)
+    // Ambiguite : un autre creneau LIBRE, portant une autre video, est presque
+    // aussi proche. On le signale plutot que de trancher au hasard.
+    const rival = paires.find(x => x.code === p.code && x.i !== p.i &&
+                                   !prisCreneau.has(x.i) &&
+                                   creneaux[x.i].video !== creneaux[p.i].video &&
+                                   Math.abs(x.ecart - p.ecart) <= AMBIGU_MS)
+    res.set(p.code, {
+      video: creneaux[p.i].video,
+      ecartMin: Math.round(p.ecart / 60000),
+      ambigu: rival ? creneaux[rival.i].video : null,
+    })
   }
+  return res
 }
 
 function libelleVideo(m) {
@@ -165,6 +205,33 @@ try {
   etat = JSON.parse(fs.readFileSync(FICHIER_ETAT, 'utf8'))
   if (!etat.releves) etat.releves = {}
 } catch { /* premier passage : pas de fichier */ }
+
+// --- Historique long : tous les postes teste, meme anciens -----------------
+
+let histo = { postes: {} }
+try {
+  histo = JSON.parse(fs.readFileSync(FICHIER_HISTO, 'utf8'))
+  if (!histo.postes) histo.postes = {}
+} catch { /* premier passage */ }
+
+/**
+ * Enregistre (ou rafraichit) un poste teste dans l'historique.
+ * Les vues ne peuvent que monter : si Instagram renvoie une valeur plus basse
+ * (reponse partielle, cache), on garde l'ancienne pour ne pas fausser le
+ * classement.
+ */
+function memoriser(username, reel, video, maintenant) {
+  const ancien = histo.postes[reel.code]
+  histo.postes[reel.code] = {
+    u: username,
+    video,
+    vues: Math.max((ancien && ancien.vues) || 0, reel.vues || 0),
+    likes: Math.max((ancien && ancien.likes) || 0, reel.likes || 0),
+    commentaires: Math.max((ancien && ancien.commentaires) || 0, reel.commentaires || 0),
+    posteA: reel.posteA,
+    maj: maintenant,
+  }
+}
 
 function tendance(code, vues, maintenant) {
   if ((vues || 0) === 0) {
@@ -244,11 +311,194 @@ function embedTeste(username, reel, palier, m, maintenant) {
   }
 }
 
+// --- Classement ------------------------------------------------------------
+
+const MAX_MSG = 1900   // marge sous la limite Discord de 2000 caracteres
+
+function medaille(rang) {
+  if (rang === 1) return '🥇'
+  if (rang === 2) return '🥈'
+  if (rang === 3) return '🥉'
+  return '**' + rang + '.**'
+}
+
+/** Nombre de creneaux teste deja passes pour un compte (ce qui aurait du sortir). */
+function creneauxPasses(username, maintenant) {
+  return ((planning.comptes || {})[norm(username)] || [])
+    .filter(c => /^teste\d+$/i.test(c.video) && c.epoch * 1000 <= maintenant - TOLERANCE_MS).length
+}
+
+/** Regroupe l'historique par compte et trie par moyenne de vues decroissante. */
+function construireClassement(maintenant) {
+  const par = new Map()
+  for (const [code, p] of Object.entries(histo.postes || {})) {
+    if (!p || !p.u) continue
+    if (!par.has(p.u)) par.set(p.u, [])
+    par.get(p.u).push({ code, ...p })
+  }
+  const lignes = []
+  for (const [u, postes] of par) {
+    postes.sort((a, b) => a.posteA - b.posteA)
+    const total = postes.reduce((s, p) => s + (p.vues || 0), 0)
+    lignes.push({
+      u,
+      postes,
+      total,
+      moyenne: total / postes.length,
+      meilleur: Math.max(...postes.map(p => p.vues || 0)),
+      attendus: Math.max(postes.length, creneauxPasses(u, maintenant)),
+    })
+  }
+  // Moyenne d'abord ; a moyenne egale, celui qui a le plus de postes derriere
+  // lui a la mesure la plus solide, il passe devant.
+  lignes.sort((a, b) => b.moyenne - a.moyenne ||
+                        b.postes.length - a.postes.length ||
+                        a.u.localeCompare(b.u))
+  return lignes
+}
+
+/** Une entree du classement, en texte brut (2 lignes). */
+function ligneClassement(rang, c) {
+  const detail = c.postes
+    .map(p => '`' + p.video + '` ' + nombre(p.vues))
+    .join(' · ')
+  const alerte = c.moyenne === 0 ? ' 🟣' : (c.moyenne >= SEUIL ? ' ✅' : '')
+  return medaille(rang) + ' `' + c.u + '`' + alerte +
+         ' — moyenne **' + nombre(Math.round(c.moyenne)) + '** ' +
+         (Math.round(c.moyenne) > 1 ? 'vues' : 'vue') +
+         ' · ' + c.postes.length + ' poste' + (c.postes.length > 1 ? 's' : '') +
+         (c.attendus > c.postes.length
+           ? ' ⚠️ (' + (c.attendus - c.postes.length) + ' non publié' + (c.attendus - c.postes.length > 1 ? 's' : '') + ')'
+           : '') +
+         ' · total ' + nombre(c.total) +
+         ' · [profil](<https://www.instagram.com/' + c.u + '/>)\n' +
+         '　└ ' + detail
+}
+
+/** Decoupe le classement en messages de moins de 2000 caracteres. */
+function pagesClassement(lignes, maintenant, sansPoste, attendus) {
+  const nbPostes = lignes.reduce((s, c) => s + c.postes.length, 0)
+  const totalVues = lignes.reduce((s, c) => s + c.total, 0)
+  const zeros = lignes.filter(c => c.total === 0).length
+  const dessus = lignes.filter(c => c.moyenne >= SEUIL).length
+
+  const entete =
+    '# 🏆 Classement des comptes en teste\n' +
+    'Mis à jour le ' + new Date(maintenant).toLocaleString('fr-FR', {
+      timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    }) + ' · **' + lignes.length + '** comptes · **' + nbPostes + '** postes teste · ' +
+    nombre(totalVues) + ' vues cumulées\n' +
+    '✅ ' + dessus + ' compte(s) au-dessus de ' + SEUIL + ' vues de moyenne · ' +
+    '🟣 ' + zeros + ' compte(s) encore à 0 vue\n' +
+    '🔎 Couverture : **' + nbPostes + '/' + attendus + '** publications teste attendues ont été retrouvées' +
+    (attendus > nbPostes ? ' — les ' + (attendus - nbPostes) + ' manquantes sont détaillées en bas.' : ' — rien ne manque.') + '\n' +
+    '_Classé par moyenne de vues. La 2e ligne donne les vues de chaque poste teste, du plus ancien au plus récent._'
+
+  const pages = []
+  let courant = entete
+  lignes.forEach((c, i) => {
+    const bloc = '\n\n' + ligneClassement(i + 1, c)
+    if (courant.length + bloc.length > MAX_MSG) { pages.push(courant); courant = bloc.trimStart() }
+    else courant += bloc
+  })
+  if (courant.trim()) pages.push(courant)
+
+  // Rien ne doit disparaitre en silence : on distingue ce qui n'a pas encore
+  // ete publie de ce qui aurait DU l'etre.
+  const ajouterBloc = (titre, note, liste) => {
+    if (!liste.length) return
+    let bloc = titre + '\n' + note + '\n'
+    for (const t of liste) {
+      const bout = t + ' '
+      if (bloc.length + bout.length > MAX_MSG) { pages.push(bloc); bloc = '' }
+      bloc += bout
+    }
+    if (bloc.trim()) pages.push(bloc)
+  }
+
+  ajouterBloc(
+    '### ❌ ' + sansPoste.rates.length + ' compte(s) : créneau teste passé, aucune publication trouvée',
+    '_Le créneau est passé depuis plus de 45 min et rien n\'est sorti : flow GeeLark en échec, ' +
+    'téléphone ou proxy KO. À vérifier dans GeeLark._',
+    sansPoste.rates.map(x => '`' + x.u + '`(' + x.passes + ')'))
+
+  ajouterBloc(
+    '### ⏳ ' + sansPoste.attente.length + ' compte(s) en teste, publication pas encore passée',
+    '_Rien d\'anormal : leur premier créneau teste est encore à venir._',
+    sansPoste.attente.map(x => '`' + x.u + '`'))
+
+  return pages
+}
+
+/**
+ * Reecrit le salon classement : on MODIFIE les messages deja publies plutot
+ * que de tout supprimer et republier. Le salon reste donc a la meme place,
+ * sans notification a chaque passage, et affiche toujours l'etat courant.
+ */
+async function publierClassement(maintenant, comptes) {
+  if (!SALON_CLASSEMENT) return 0
+  const lignes = construireClassement(maintenant)
+  if (!lignes.length) { console.log('[classement] aucun poste teste connu, rien a publier'); return 0 }
+  const classes = new Set(lignes.map(c => norm(c.u)))
+  // Les comptes qui repostent leur propre video ne font pas partie du test :
+  // les citer comme "sans poste teste" serait trompeur.
+  const propre = new Set((planning.groupeVideoPropre || []).map(norm))
+  const sansPoste = { rates: [], attente: [] }
+  for (const u of (comptes || []).slice().sort()) {
+    if (classes.has(norm(u)) || propre.has(norm(u))) continue
+    const passes = ((planning.comptes || {})[norm(u)] || [])
+      .filter(c => /^teste\d+$/i.test(c.video) && c.epoch * 1000 <= maintenant - TOLERANCE_MS).length
+    if (passes > 0) sansPoste.rates.push({ u, passes })
+    else sansPoste.attente.push({ u })
+  }
+  // Combien de publications teste auraient deja du sortir, tous comptes suivis
+  // confondus : c'est l'etalon qui dit si le classement est complet.
+  let attendus = 0
+  for (const u of (comptes || [])) {
+    if (propre.has(norm(u))) continue
+    const c = lignes.find(x => norm(x.u) === norm(u))
+    attendus += c ? c.attendus : creneauxPasses(u, maintenant)
+  }
+  const pages = pagesClassement(lignes, maintenant, sansPoste, attendus)
+
+  // Les messages du bot, du plus ancien au plus recent : c'est l'ordre d'affichage.
+  const anciens = (await lireMessages(SALON_CLASSEMENT, 2))
+    .filter(m => m.author && m.author.id === MOI)
+    .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+
+  for (let i = 0; i < pages.length; i++) {
+    const corps = { content: pages[i], allowed_mentions: { parse: [] } }
+    try {
+      if (anciens[i]) {
+        if (anciens[i].content !== pages[i]) {
+          await discord('PATCH', '/channels/' + SALON_CLASSEMENT + '/messages/' + anciens[i].id, corps)
+        }
+      } else {
+        await discord('POST', '/channels/' + SALON_CLASSEMENT + '/messages', corps)
+      }
+    } catch (e) {
+      console.error('[classement] page ' + (i + 1) + ' : ' + e.message)
+    }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+  // Le classement a raccourci : on retire les messages devenus inutiles.
+  for (let i = pages.length; i < anciens.length; i++) {
+    try { await discord('DELETE', '/channels/' + SALON_CLASSEMENT + '/messages/' + anciens[i].id) }
+    catch (e) { console.error('[classement] suppression : ' + e.message) }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+  return pages.length
+}
+
 // --- Cycle -----------------------------------------------------------------
+
+let MOI = ''
 
 async function cycle() {
   console.log('[teste] demarrage (GitHub Actions, one-shot)')
   const moi = await discord('GET', '/users/@me')
+  MOI = moi.id
   console.log('[teste] connecte en tant que ' + moi.username + ' (' + moi.id + ')')
 
   // Ce qui a deja ete poste : on relit les salons, comme le bot principal.
@@ -286,23 +536,60 @@ async function cycle() {
   const nouveauxReleves = {}
   let erreurs = 0
 
+  // Combien de creneaux teste sont deja passes, et depuis quand : c'est ce qui
+  // dit jusqu'ou remonter dans le fil de chaque compte.
+  const parCompte = new Map()
+  for (const p of Object.values(histo.postes || {})) {
+    parCompte.set(norm(p.u), (parCompte.get(norm(p.u)) || 0) + 1)
+  }
+
   for (const u of comptes) {
-    const r = await reelsDuCompte(u)
+    // Creneaux teste deja passes pour ce compte.
+    const creneaux = (planning.comptes || {})[norm(u)] || []
+    const passes = creneaux
+      .filter(c => /^teste\d+$/i.test(c.video) && c.epoch * 1000 <= maintenant - 10 * 60 * 1000)
+      .map(c => c.epoch * 1000)
+      .sort((a, b) => a - b)
+    const connus = parCompte.get(norm(u)) || 0
+    // Il manque des postes : on remonte le fil jusqu'au plus ancien creneau
+    // passe. Sinon une seule page suffit — c'est le cas courant, et ca evite
+    // de matraquer Instagram toutes les 10 minutes.
+    const manque = passes.length > connus
+    const r = await reelsDuCompte(u, 12, manque
+      ? { jusquA: passes[0] - TOLERANCE_MS, maxPages: PAGES_INSTA_MAX, pausePageMs: PAUSE_INSTA_MS }
+      : {})
     if (r.erreur) {
       erreurs++
       console.warn('[insta] ' + u + ' -> ' + r.erreur)
       await dodo(PAUSE_INSTA_MS)
       continue
     }
-    for (const reel of (r.reels || [])) {
-      if (!reel.code || !reel.posteA) continue
-      const ageH = (maintenant - reel.posteA) / 3600e3
-      if (ageH > PALIER_MAX_H + 2) continue
+    const reelsVus = (r.reels || []).filter(x => x.code && x.posteA)
+    const attribution = attribuerVideos(u, reelsVus)
+    // Auto-correction : tout ce qu'on a memorise dans la fenetre qu'on vient de
+    // relire et qui n'est plus attribue a une video teste sort de l'historique.
+    // Sans ca, une mauvaise attribution d'un ancien passage resterait a vie.
+    const plusVieuxVu = reelsVus.length ? Math.min(...reelsVus.map(x => x.posteA)) : null
+    if (plusVieuxVu !== null) {
+      for (const [code, p] of Object.entries(histo.postes || {})) {
+        if (norm(p.u) !== norm(u) || p.posteA < plusVieuxVu) continue
+        const a = attribution.get(code)
+        if (!a || !/^teste\d+$/i.test(a.video)) delete histo.postes[code]
+      }
+    }
 
-      const m = videoDuReel(u, reel.posteA)
+    for (const reel of reelsVus) {
+      const ageH = (maintenant - reel.posteA) / 3600e3
+
+      const m = attribution.get(reel.code)
       // Uniquement les videos teste1 -> teste5 : les videos propres ne font pas
       // partie du test, et un reel hors planning n'est rattachable a rien.
       if (!m || !/^teste\d+$/i.test(m.video)) continue
+
+      // Le classement compte TOUS les postes teste, y compris ceux sortis de la
+      // fenetre de suivi : on memorise avant la coupure d'age.
+      memoriser(u, reel, m.video, maintenant)
+      if (ageH > PALIER_MAX_H + 2) continue
 
       // On garde le releve AVANT de comparer : la comparaison se fait contre
       // l'ancien fichier, le nouveau servira au passage suivant.
@@ -337,6 +624,8 @@ async function cycle() {
     }
     await dodo(PAUSE_INSTA_MS)
   }
+
+  if (CLASSEMENT_SEUL) { aPoster.length = 0; faibles.length = 0; forts.length = 0 }
 
   aPoster.sort((a, b) => a.reel.posteA - b.reel.posteA || a.p - b.p)
   let postes = 0
@@ -395,9 +684,19 @@ async function cycle() {
     await dodo(PAUSE_DISCORD_MS)
   }
 
+  // Historique long puis classement : le fichier est ecrit meme si Discord
+  // refuse, pour ne jamais perdre un releve.
+  histo = { maj: new Date().toISOString(), postes: histo.postes }
+  fs.mkdirSync(path.dirname(FICHIER_HISTO), { recursive: true })
+  fs.writeFileSync(FICHIER_HISTO, JSON.stringify(histo, null, 2))
+
+  const pagesRang = await publierClassement(maintenant, comptes)
+
   console.log('[teste] ' + comptes.length + ' comptes · ' + postes + ' feedback(s) · ' +
               signales + ' faible(s) · ' + valides + ' au-dessus de ' + SEUIL + ' vues · ' +
-              Object.keys(nouveauxReleves).length + ' releve(s) · ' + erreurs + ' erreur(s) Instagram')
+              Object.keys(nouveauxReleves).length + ' releve(s) · ' +
+              Object.keys(histo.postes).length + ' poste(s) au classement (' + pagesRang + ' message(s)) · ' +
+              erreurs + ' erreur(s) Instagram')
 }
 
 cycle()

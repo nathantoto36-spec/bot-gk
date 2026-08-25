@@ -1,6 +1,6 @@
 {
   "_comment": "Planning des posts en teste. Le bot rattache un reel au creneau programme le plus proche pour savoir QUELLE video teste a genere les vues. Cles normalisees ; vrais pseudos dans pseudos. Creneaux annules exclus.",
-  "genere": "2026-08-25T16:29:22.051Z",
+  "genere": "2026-08-25T19:01:17.241Z",
   "legende": "No makeup\n#yummy #instamood #reel #explore #instatravel",
   "pseudos": {
     "indysstellasx": "indysstellasx",
@@ -71,7 +71,12 @@
     "tyilinaziluxe": "tyilinaziluxe",
     "alisskkeit": "alisskkeit",
     "ellaxce0": "ellaxce0",
-    "lolamythe": "lolamythe"
+    "lolamythe": "lolamythe",
+    "nanakdjzd": "nanakdjzd",
+    "tissalilamy": "tissalilamy",
+    "annishaxcliara": "annishaxcliara",
+    "emilymp_x": "emilymp.x",
+    "katy_sofiar": "katy.sofiar"
   },
   "groupes": {
     "indysstellasx": "tkanuya account 2",
@@ -142,7 +147,12 @@
     "tyilinaziluxe": "✔️tkanuya account",
     "alisskkeit": "✔️tkanuya account",
     "ellaxce0": "✔️tkanuya account",
-    "lolamythe": "✔️tkanuya account"
+    "lolamythe": "✔️tkanuya account",
+    "nanakdjzd": "tkanuya account 2",
+    "tissalilamy": "✔️tkanuya account",
+    "annishaxcliara": "tkanuya account 2",
+    "emilymp_x": "tkanuya account 2",
+    "katy_sofiar": "✔️tkanuya account"
   },
   "comptes": {
     "indysstellasx": [
@@ -1246,33 +1256,33 @@
       },
       {
         "epoch": 1787687760,
-        "video": "elyzamiaadef",
-        "taskId": "634362094724055447"
+        "video": "teste2",
+        "taskId": "634438122641293672"
       },
       {
         "epoch": 1787705520,
-        "video": "elyzamiaadef",
-        "taskId": "634362109437673879"
+        "video": "teste3",
+        "taskId": "634438126365835671"
       },
       {
         "epoch": 1787723280,
-        "video": "elyzamiaadef",
-        "taskId": "634362127875834216"
+        "video": "teste4",
+        "taskId": "634438130761466263"
       },
       {
         "epoch": 1787741040,
-        "video": "elyzamiaadef",
-        "taskId": "634362143596085428"
+        "video": "teste1",
+        "taskId": "634438134502785204"
       },
       {
         "epoch": 1787758800,
-        "video": "elyzamiaadef",
-        "taskId": "634362161581261207"
+        "video": "teste5",
+        "taskId": "634438138227327156"
       },
       {
         "epoch": 1787776560,
-        "video": "elyzamiaadef",
-        "taskId": "634362175724454248"
+        "video": "teste2",
+        "taskId": "634438142035755368"
       }
     ],
     "ellialidanina": [
@@ -3267,12 +3277,181 @@
         "video": "teste5",
         "taskId": "634422776555372951"
       }
+    ],
+    "nanakdjzd": [
+      {
+        "epoch": 1787685600,
+        "video": "teste4",
+        "taskId": "634438122037313716"
+      },
+      {
+        "epoch": 1787703360,
+        "video": "teste5",
+        "taskId": "634438125728301416"
+      },
+      {
+        "epoch": 1787721120,
+        "video": "teste1",
+        "taskId": "634438129469620404"
+      },
+      {
+        "epoch": 1787738880,
+        "video": "teste3",
+        "taskId": "634438133278048663"
+      },
+      {
+        "epoch": 1787756640,
+        "video": "teste2",
+        "taskId": "634438137623347380"
+      },
+      {
+        "epoch": 1787774400,
+        "video": "teste5",
+        "taskId": "634438141414998423"
+      },
+      {
+        "epoch": 1787792160,
+        "video": "teste4",
+        "taskId": "634438145189872023"
+      }
+    ],
+    "tissalilamy": [
+      {
+        "epoch": 1787687760,
+        "video": "teste4",
+        "taskId": "634438123245273448"
+      },
+      {
+        "epoch": 1787692920,
+        "video": "teste2",
+        "taskId": "634438125107544424"
+      },
+      {
+        "epoch": 1787711640,
+        "video": "teste5",
+        "taskId": "634438128865640855"
+      },
+      {
+        "epoch": 1787721120,
+        "video": "teste3",
+        "taskId": "634438130090377396"
+      },
+      {
+        "epoch": 1787730360,
+        "video": "teste1",
+        "taskId": "634438132606959976"
+      },
+      {
+        "epoch": 1787749080,
+        "video": "teste4",
+        "taskId": "634438136381833576"
+      },
+      {
+        "epoch": 1787754480,
+        "video": "teste3",
+        "taskId": "634438137002590388"
+      },
+      {
+        "epoch": 1787767800,
+        "video": "teste1",
+        "taskId": "634438140123152791"
+      },
+      {
+        "epoch": 1787786520,
+        "video": "teste5",
+        "taskId": "634438143914803560"
+      },
+      {
+        "epoch": 1787787840,
+        "video": "teste2",
+        "taskId": "634438144535560372"
+      }
+    ],
+    "annishaxcliara": [
+      {
+        "epoch": 1787688000,
+        "video": "teste4",
+        "taskId": "634438123866030440"
+      },
+      {
+        "epoch": 1787705760,
+        "video": "teste3",
+        "taskId": "634438127590572212"
+      },
+      {
+        "epoch": 1787723520,
+        "video": "teste1",
+        "taskId": "634438131365445992"
+      },
+      {
+        "epoch": 1787741280,
+        "video": "teste2",
+        "taskId": "634438135157096855"
+      },
+      {
+        "epoch": 1787759040,
+        "video": "teste5",
+        "taskId": "634438138848084328"
+      },
+      {
+        "epoch": 1787776800,
+        "video": "teste2",
+        "taskId": "634438142690066839"
+      }
+    ],
+    "emilymp_x": [
+      {
+        "epoch": 1787688960,
+        "video": "teste3",
+        "taskId": "634438124503564695"
+      },
+      {
+        "epoch": 1787706720,
+        "video": "teste5",
+        "taskId": "634438128211329204"
+      },
+      {
+        "epoch": 1787724480,
+        "video": "teste2",
+        "taskId": "634438131969425588"
+      },
+      {
+        "epoch": 1787742240,
+        "video": "teste1",
+        "taskId": "634438135777853800"
+      },
+      {
+        "epoch": 1787760000,
+        "video": "teste4",
+        "taskId": "634438139468841140"
+      },
+      {
+        "epoch": 1787777760,
+        "video": "teste5",
+        "taskId": "634438143310823604"
+      }
+    ],
+    "katy_sofiar": [
+      {
+        "epoch": 1787705520,
+        "video": "teste5",
+        "taskId": "634438126986592616"
+      },
+      {
+        "epoch": 1787738880,
+        "video": "teste2",
+        "taskId": "634438133898805428"
+      },
+      {
+        "epoch": 1787772240,
+        "video": "teste1",
+        "taskId": "634438140777464215"
+      }
     ]
   },
   "groupeVideoPropre": [
     "sammuellawaa",
     "paolamamiaa",
-    "elyzamiaa",
     "ellialidanina"
   ]
 }

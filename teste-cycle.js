@@ -29,6 +29,8 @@ import { reelsDuCompte } from './instagram.js'
 const TOKEN = process.env.DISCORD_BOT_TOKEN_TESTE || process.env.DISCORD_BOT_TOKEN
 const SALON_TESTE = process.env.SALON_TESTE || '1541707020413968444'
 const SALON_FAIBLE = process.env.SALON_FAIBLE || '1541844783193129081'
+// Salon des comptes qui ont franchi le seuil, quel que soit le temps mis.
+const SALON_FORT = process.env.SALON_FORT || '1541883607478702261'
 
 const PALIERS = (process.env.PALIERS_TESTE || '1,3,6,10')
   .split(',').map(x => parseFloat(x.trim())).filter(n => n > 0).sort((a, b) => a - b)
@@ -257,11 +259,20 @@ async function cycle() {
       if (f && f.startsWith('gkt:')) dejaPoste.add(f.slice(4))
     }
   }
+  // Le salon faible liste un post par ligne : on dedoublonne sur le code du reel,
+  // qu'on relit dans le lien present dans le message.
   const dejaFaible = new Set()
   if (SALON_FAIBLE) {
     for (const m of await lireMessages(SALON_FAIBLE, 2)) {
-      const mm = (m.content || '').match(/^`([a-z0-9._]+)`/i)
-      if (mm) dejaFaible.add(mm[1].toLowerCase())
+      const mm = (m.content || '').match(/\/reel\/([A-Za-z0-9_-]+)/)
+      if (mm) dejaFaible.add(mm[1])
+    }
+  }
+  const dejaFort = new Set()
+  if (SALON_FORT) {
+    for (const m of await lireMessages(SALON_FORT, 2)) {
+      const mm = (m.content || '').match(/\/reel\/([A-Za-z0-9_-]+)/)
+      if (mm) dejaFort.add(mm[1])
     }
   }
   console.log('[teste] deja postes : ' + dejaPoste.size + ' feedbacks · ' +
@@ -271,6 +282,7 @@ async function cycle() {
   const maintenant = Date.now()
   const aPoster = []
   const faibles = []
+  const forts = []
   const nouveauxReleves = {}
   let erreurs = 0
 
@@ -301,10 +313,26 @@ async function cycle() {
           aPoster.push({ u, reel, p, m })
         }
       }
-      if (SALON_FAIBLE && ageH >= PALIER_FAIBLE &&
-          (reel.vues || 0) < SEUIL_FAIBLE && !dejaFaible.has(u.toLowerCase())) {
-        faibles.push(u)
-        dejaFaible.add(u.toLowerCase())
+      // Deux raisons d'atterrir dans le salon des comptes faibles :
+      //  - 0 vue : c'est grave et il faut le voir tout de suite, des le 1er palier
+      //  - moins de 100 vues alors que le reel a eu plusieurs heures pour decoller
+      // Seuil franchi : on l'annonce une seule fois, peu importe le temps mis.
+      // Pas de palier ici — des que les 200 vues sont la, la video est validee.
+      if (SALON_FORT && (reel.vues || 0) >= SEUIL && !dejaFort.has(reel.code)) {
+        forts.push({ u, reel, m, ageH })
+        dejaFort.add(reel.code)
+      }
+      if (SALON_FAIBLE && !dejaFaible.has(reel.code)) {
+        // Des le premier palier : Nathan veut la liste complete des comptes sous
+        // 100 vues, pas seulement ceux qui ont deja eu plusieurs heures.
+        // Contrepartie assumee : un reel liste a 1h avec 80 vues peut monter
+        // ensuite — il apparaitra alors dans le salon des 200+.
+        const zero = (reel.vues || 0) === 0 && ageH >= PALIERS[0]
+        const mou = (reel.vues || 0) < SEUIL_FAIBLE && ageH >= PALIERS[0]
+        if (zero || mou) {
+          faibles.push({ u, reel, m, ageH, zero })
+          dejaFaible.add(reel.code)
+        }
       }
     }
     await dodo(PAUSE_INSTA_MS)
@@ -324,13 +352,23 @@ async function cycle() {
   }
 
   let signales = 0
-  for (const u of faibles) {
+  faibles.sort((a, b) => (b.zero ? 1 : 0) - (a.zero ? 1 : 0) || a.reel.posteA - b.reel.posteA)
+  for (const f of faibles) {
+    // Les liens sont entoures de < > : Discord ne deplie alors aucun apercu.
+    // Sans ca chaque message traine une carte "Login · Instagram" inutile.
+    const heures = f.ageH < 1.5 ? '1h' : Math.round(f.ageH) + 'h'
+    const etat = f.zero
+      ? '🟣 **0 vue** après ' + heures
+      : '⚠️ **' + nombre(f.reel.vues) + ' vues** après ' + heures
+    const contenu =
+      '`' + f.u + '` · <https://www.instagram.com/' + f.u + '/>\n' +
+      etat + ' · vidéo `' + f.m.video + '` · ' +
+      '[voir le post](<https://www.instagram.com/reel/' + f.reel.code + '/>)'
     try {
-      await discord('POST', '/channels/' + SALON_FAIBLE + '/messages',
-        { content: '`' + u + '` · https://www.instagram.com/' + u + '/' })
+      await discord('POST', '/channels/' + SALON_FAIBLE + '/messages', { content: contenu })
       signales++
     } catch (e) {
-      console.error('[discord] salon faibles echoue (' + u + ') : ' + e.message)
+      console.error('[discord] salon faibles echoue (' + f.u + ') : ' + e.message)
     }
     await dodo(PAUSE_DISCORD_MS)
   }
@@ -340,9 +378,26 @@ async function cycle() {
   fs.mkdirSync(path.dirname(FICHIER_ETAT), { recursive: true })
   fs.writeFileSync(FICHIER_ETAT, JSON.stringify(etat, null, 2))
 
+  let valides = 0
+  forts.sort((a, b) => b.reel.vues - a.reel.vues)
+  for (const f of forts) {
+    const heures = f.ageH < 1.5 ? '1h' : Math.round(f.ageH) + 'h'
+    const contenu =
+      '`' + f.u + '` · <https://www.instagram.com/' + f.u + '/>\n' +
+      '✅ **' + nombre(f.reel.vues) + ' vues** en ' + heures + ' · vidéo `' + f.m.video + '` · ' +
+      '[voir le post](<https://www.instagram.com/reel/' + f.reel.code + '/>)'
+    try {
+      await discord('POST', '/channels/' + SALON_FORT + '/messages', { content: contenu })
+      valides++
+    } catch (e) {
+      console.error('[discord] salon 200+ echoue (' + f.u + ') : ' + e.message)
+    }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+
   console.log('[teste] ' + comptes.length + ' comptes · ' + postes + ' feedback(s) · ' +
-              signales + ' compte(s) faible(s) · ' + Object.keys(nouveauxReleves).length +
-              ' releve(s) enregistre(s) · ' + erreurs + ' erreur(s) Instagram')
+              signales + ' faible(s) · ' + valides + ' au-dessus de ' + SEUIL + ' vues · ' +
+              Object.keys(nouveauxReleves).length + ' releve(s) · ' + erreurs + ' erreur(s) Instagram')
 }
 
 cycle()

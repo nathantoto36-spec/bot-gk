@@ -46,14 +46,16 @@ jobs:
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
           SALON_TESTE: '1541707020413968444'
           SALON_FAIBLE: '1541844783193129081'
+          SALON_FORT: '1541883607478702261'
+          SALON_CLASSEMENT: '1541918389876957184'
         run: node teste-cycle.js
 
       - name: Enregistrer les releves de vues
         run: |
-          if [ -n "$(git status --porcelain data/vues-teste.json)" ]; then
+          if [ -n "$(git status --porcelain data/)" ]; then
             git config user.name  "bot-gk[bot]"
             git config user.email "bot-gk[bot]@users.noreply.github.com"
-            git add data/vues-teste.json
+            git add data/vues-teste.json data/historique-teste.json
             git commit -m "teste: releve des vues"
             # Un autre passage a pu commiter entre-temps : on rebase avant de pousser.
             git pull --rebase --autostash origin main || true

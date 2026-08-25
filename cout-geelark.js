@@ -98,6 +98,24 @@ async function transactionsRecentes({ startAt, endAt, limit = 1000 } = {}) {
   return { list: out }
 }
 
+// Taches / programmations planifiees des ~7 derniers jours (RPA). cost = secondes.
+async function tachesRecentes() {
+  const out = []
+  let lastId
+  for (let i = 0; i < 40; i++) {
+    const body = { size: 100 }
+    if (lastId) body.lastId = lastId
+    const res = await glPost('/open/v1/task/historyRecords', body)
+    if (res && res.error) return { error: res.error, msg: res.msg, body: res.body, partiel: out }
+    const d = (res && (res.data || res.result || res)) || {}
+    const items = d.items || d.list || d.records || []
+    out.push(...items)
+    lastId = d.lastId || (items.length ? items[items.length - 1].id : null)
+    if (!items.length || items.length < 100) break
+  }
+  return { list: out }
+}
+
 // --- Config ----------------------------------------------------------------
 const SALON = process.env.SALON_COUT_GEELARK || ''
 const SALON_NOM = process.env.SALON_COUT_GEELARK_NOM || 'cout-de-geelark'
@@ -413,6 +431,27 @@ async function main() {
     while (cles.length > 40) { delete hist._midnight[cles.shift()] }
     ecrireHistorique(hist)
     console.log('[snapshot] solde add-on minuit ' + aujD + ' = ' + hist._midnight[aujD])
+    return
+  }
+
+  // Diagnostic taches (declenche via custom_id=diag_taches) : liste les programmations 7 jours.
+  if (CUSTOM_ID === 'diag_taches') {
+    const t = await tachesRecentes()
+    if (t.error) { console.log('[diag] KO ' + JSON.stringify(t)); return }
+    const parType = {}, parPlan = {}, envs = new Set()
+    let totalSec = 0
+    for (const x of t.list) {
+      const sec = Number(x.cost || 0); totalSec += sec
+      const kt = 'type' + x.taskType; if (!parType[kt]) parType[kt] = { n: 0, min: 0 }; parType[kt].n++; parType[kt].min += sec / 60
+      const kp = (x.planName || '(sans nom)') + ' [t' + x.taskType + ']'; if (!parPlan[kp]) parPlan[kp] = { n: 0, min: 0 }; parPlan[kp].n++; parPlan[kp].min += sec / 60
+      if (x.envId) envs.add(x.envId)
+    }
+    for (const k in parType) parType[k].min = Math.round(parType[k].min)
+    for (const k in parPlan) parPlan[k].min = Math.round(parPlan[k].min)
+    console.log('[diag] total_taches=' + t.list.length + ' total_min=' + Math.round(totalSec / 60) + ' nb_envs=' + envs.size)
+    console.log('[diag] parType=' + JSON.stringify(parType))
+    console.log('[diag] parPlan=' + JSON.stringify(parPlan))
+    console.log('[diag] sample=' + JSON.stringify(t.list.slice(0, 6)))
     return
   }
 

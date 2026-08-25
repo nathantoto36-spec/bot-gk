@@ -1,0 +1,63 @@
+name: teste
+
+# Suivi des videos teste1 -> teste5 sur les comptes a faible vue.
+#
+# Toutes les 10 minutes : releve les vues, compare au releve precedent stocke
+# dans data/vues-teste.json, et poste dans #compte-faible-vue-teste les reels
+# qui viennent de franchir 1h, 3h, 6h ou 10h.
+#
+# L'ecart de 10 minutes entre deux passages EST la fenetre de tendance : c'est
+# ce qui permet de dire si un reel monte encore (vert) ou stagne (rouge).
+# GitHub peut retarder un passage quand ses runners sont charges ; le message
+# affiche alors l'ecart reel, il reste donc juste.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: teste-cycle
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Cycle teste
+        env:
+          # Si le secret DISCORD_BOT_TOKEN_TESTE existe (bot TAKA), il est
+          # utilise ; sinon le script retombe sur le bot principal.
+          DISCORD_BOT_TOKEN_TESTE: ${{ secrets.DISCORD_BOT_TOKEN_TESTE }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
+          ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
+          SALON_TESTE: '1541707020413968444'
+          SALON_FAIBLE: '1541844783193129081'
+        run: node teste-cycle.js
+
+      - name: Enregistrer les releves de vues
+        run: |
+          if [ -n "$(git status --porcelain data/vues-teste.json)" ]; then
+            git config user.name  "bot-gk[bot]"
+            git config user.email "bot-gk[bot]@users.noreply.github.com"
+            git add data/vues-teste.json
+            git commit -m "teste: releve des vues"
+            # Un autre passage a pu commiter entre-temps : on rebase avant de pousser.
+            git pull --rebase --autostash origin main || true
+            git push
+          else
+            echo "Aucun changement dans les releves."
+          fi

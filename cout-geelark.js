@@ -318,7 +318,7 @@ function construireEmbed(P, s, wallet, rythme, note) {
 
   // Cout total estime = minutes (variable) + hebergement (fixe prorata).
   if (PRIX_MINUTE > 0 || partAbo > 0) {
-    lignes.push('🧮 **Coût total estimé** : **≈ ' + argent(coutMin + abo) + '**  _(minutes + hébergement)_')
+    lignes.push('🧮 **Coût total estimé** : **≈ ' + argent(coutMin + abo) + '**  _(' + argent(coutMin) + ' minutes + ' + argent(abo) + ' hébergement)_')
   }
 
   // Depense cash reelle (recharges/achats) - souvent 0 en prepaye.

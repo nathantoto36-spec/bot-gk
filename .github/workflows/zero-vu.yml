@@ -1,0 +1,66 @@
+name: zero-vu
+
+# Declenche par le CLIC sur le bouton "J'ai note les nouveaux" du salon
+# ‼️noms-comptes-0-vues.
+#
+# Chaine complete : bouton Discord -> worker Cloudflare (verifie la signature)
+# -> repository_dispatch [zero_vu] -> ce workflow. Le script relit ce qui est
+# AFFICHE, marque tout comme vu, retire les badges, et repond "c'est note" en
+# message ephemere via le jeton d'interaction.
+#
+# Groupe de concurrence distinct du cycle horaire : le clic doit repondre tout
+# de suite, le jeton d'interaction n'est valable que ~15 min.
+
+on:
+  repository_dispatch:
+    types: [zero_vu]
+  workflow_dispatch:
+
+concurrency:
+  group: zero-vu
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  vu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Marquer les nouveaux comme vus
+        env:
+          ZERO_SEUL: '1'
+          ZERO_VU: '1'
+          INTERACTION_TOKEN: ${{ github.event.client_payload.token }}
+          APPLICATION_ID: ${{ github.event.client_payload.application_id }}
+          DISCORD_BOT_TOKEN_TESTE: ${{ secrets.DISCORD_BOT_TOKEN_TESTE }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          SALON_TESTE: '1541707020413968444'
+          SALON_FAIBLE: '1541844783193129081'
+          SALON_FORT: '1541883607478702261'
+          SALON_CLASSEMENT: '1541918389876957184'
+          SALON_ZERO: '1542096651265769573'
+          SOURCE_ZERO: '1540234183451086858'
+        run: node teste-cycle.js
+
+      - name: Enregistrer les comptes deja pointes
+        run: |
+          if [ -n "$(git status --porcelain data/zero-connus.json)" ]; then
+            git config user.name  "bot-gk[bot]"
+            git config user.email "bot-gk[bot]@users.noreply.github.com"
+            git add data/zero-connus.json
+            git commit -m "zero: nouveaux marques comme vus"
+            git pull --rebase --autostash origin main || true
+            git push
+          else
+            echo "Aucun changement."
+          fi

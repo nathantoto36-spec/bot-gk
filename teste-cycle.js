@@ -214,6 +214,12 @@ try {
   if (!histo.postes) histo.postes = {}
 } catch { /* premier passage */ }
 
+// Un compte supprime de GeeLark disparait du planning : il doit aussi sortir du
+// classement, sinon il y resterait indefiniment avec ses anciennes vues.
+for (const [code, p] of Object.entries(histo.postes)) {
+  if (!p || !p.u || !(planning.comptes || {})[norm(p.u)]) delete histo.postes[code]
+}
+
 /**
  * Enregistre (ou rafraichit) un poste teste dans l'historique.
  * Les vues ne peuvent que monter : si Instagram renvoie une valeur plus basse

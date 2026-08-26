@@ -1,0 +1,62 @@
+name: zero
+
+# Classement des comptes a 0 vue, et RIEN d'autre.
+#
+# Ce passage n'appelle pas Instagram : il relit le salon d'alertes du bot
+# principal et reecrit le classement. Il coute une poignee d'appels Discord
+# et dure ~20 secondes, d'ou la cadence courte.
+#
+# Sa raison d'etre : quand Nathan clique sur la coche pour dire "j'ai note les
+# nouveaux", les badges doivent disparaitre en quelques minutes, sans attendre
+# le passage horaire complet.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: teste-cycle      # meme groupe que le cycle complet : jamais les deux a la fois
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  zero:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Classement 0 vue
+        env:
+          ZERO_SEUL: '1'
+          DISCORD_BOT_TOKEN_TESTE: ${{ secrets.DISCORD_BOT_TOKEN_TESTE }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          SALON_TESTE: '1541707020413968444'
+          SALON_FAIBLE: '1541844783193129081'
+          SALON_FORT: '1541883607478702261'
+          SALON_CLASSEMENT: '1541918389876957184'
+          SALON_ZERO: '1542096651265769573'
+          SOURCE_ZERO: '1540234183451086858'
+        run: node teste-cycle.js
+
+      - name: Enregistrer les comptes deja pointes
+        run: |
+          if [ -n "$(git status --porcelain data/zero-connus.json)" ]; then
+            git config user.name  "bot-gk[bot]"
+            git config user.email "bot-gk[bot]@users.noreply.github.com"
+            git add data/zero-connus.json
+            git commit -m "zero: comptes deja pointes"
+            git pull --rebase --autostash origin main || true
+            git push
+          else
+            echo "Aucun changement."
+          fi

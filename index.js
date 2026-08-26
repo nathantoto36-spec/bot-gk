@@ -15,6 +15,7 @@
 
 import { listPhonesInGroup, nomsValides } from './geelark.js'
 import { reelsDuCompte, etatCookie, reactiverCookie, pseudosCorriges } from './instagram.js'
+import { indexVivants, purgerSalon } from './nettoyage.js'
 
 // --- Configuration ---------------------------------------------------------
 
@@ -55,6 +56,8 @@ const ZERO_PALIER_H = parseInt(process.env.ZERO_PALIER_H || '1', 10)
 const zeroVus = new Set()          // reels deja signales a 0 vue (par code)
 // Salon dedie au classement par MOYENNE de vues/reel (un salon par groupe).
 const SALON_MOYENNE = process.env.SALON_MOYENNE || ''
+// NETTOYER=off desactive le menage des comptes disparus de GeeLark.
+const NETTOYER = process.env.NETTOYER || 'on'
 // Suivi bans : nb de cycles d'illisibilite consecutive avant de classer un compte "ban probable".
 const SEUIL_BAN_CYCLES = parseInt(process.env.SEUIL_BAN_CYCLES || '12', 10)
 const banStreaks = new Map()   // username -> cycles illisibles consecutifs
@@ -817,6 +820,42 @@ async function cycle() {
   }
   const corriges = pseudosCorriges()
   if (corriges.length) console.log('[insta] pseudos retrouves : ' + corriges.join(' | '))
+
+  // --- Menage : retirer des salons les comptes disparus de GeeLark ----------
+  // Les salons de logs gardent une fiche par reel. Quand un profil est
+  // supprime cote GeeLark, ses fiches restaient la indefiniment et le compte
+  // continuait d'apparaitre partout. On les retire ici.
+  //
+  // La liste GeeLark doit etre COMPLETE : si GeeLark n'a repondu qu'a moitie,
+  // conclure "ce compte n'existe plus" reviendrait a effacer des comptes actifs.
+  if (NETTOYER !== 'off' && g.tous && g.complet === true) {
+    const alias = {}
+    for (const ligne of corriges) {
+      const [de, vers] = String(ligne).split(' -> ').map(s => (s || '').trim())
+      if (de && vers) alias[vers] = de          // pseudo Instagram -> profil GeeLark
+    }
+    const idx = indexVivants(g.tous, alias)
+    const salons = [
+      [SALON_REELS, '#reels'],
+      [SALON_ZERO, '#0-vue'],
+      [SALON_500, '#500+'],
+      [SALON_LEGENDE, '#sans-legende'],
+    ].filter(([s]) => s)
+    let retires = 0
+    const vus = new Set()
+    for (const [salon, nom] of salons) {
+      const r = await purgerSalon({
+        discord, lireMessages, salon, nom, idx, moiId,
+        pages: PAGES_HISTO, pause: PAUSE_DISCORD_MS,
+      })
+      retires += r.supprimes
+      for (const u of r.comptes) vus.add(u)
+    }
+    console.log('[nettoyage] ' + retires + ' message(s) de comptes supprimes retires' +
+                (vus.size ? ' (' + [...vus].sort().join(', ') + ')' : ''))
+  } else if (NETTOYER !== 'off') {
+    console.warn('[nettoyage] liste GeeLark incomplete ou absente — aucun menage (par securite)')
+  }
 
   console.log('[cycle] termine : ' + JSON.stringify({
     comptes: comptes.length,

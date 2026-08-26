@@ -561,12 +561,25 @@ function existe(u) { return !vivants || vivants.has(norm(u)) }
  * ses anciens messages doivent partir aussi, sinon il reste visible pour
  * toujours. On relit donc le salon et on efface ce qui le concerne.
  */
+function pseudoDuMessage(m) {
+  const c = (/`@?([A-Za-z0-9._]{3,30})`/.exec(m.content || '') || [])[1]
+  if (c) return c
+  // Le salon detaille n'a pas de texte : le pseudo est dans l'embed.
+  for (const e of (m.embeds || [])) {
+    const a = ((e.author && /^@([A-Za-z0-9._]{3,30})$/.exec(e.author.name || '')) || [])[1]
+    if (a) return a
+    const d = (/`@?([A-Za-z0-9._]{3,30})`/.exec(e.description || '') || [])[1]
+    if (d) return d
+  }
+  return null
+}
+
 async function nettoyerJournal(salon, nom) {
   if (!salon || !vivants) return 0
   let n = 0
   for (const m of await lireMessages(salon, 5)) {
     if (!m.author || m.author.id !== MOI) continue
-    const u = (/`([A-Za-z0-9._]{3,30})`/.exec(m.content || '') || [])[1]
+    const u = pseudoDuMessage(m)
     if (!u || existe(u)) continue
     try { await discord('DELETE', '/channels/' + salon + '/messages/' + m.id); n++ }
     catch (e) { console.error('[nettoyage] ' + nom + ' : ' + e.message) }
@@ -687,6 +700,7 @@ async function cycle() {
   try {
     await nettoyerJournal(SALON_FAIBLE, 'moins de 100 vues')
     await nettoyerJournal(SALON_FORT, 'plus de ' + SEUIL + ' vues')
+    await nettoyerJournal(SALON_TESTE, 'suivi teste detaille')
   } catch (e) { console.error('[nettoyage] echec : ' + e.message) }
 
   // Ce classement ne depend que de Discord : on le fait en premier, comme ca il

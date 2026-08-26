@@ -44,7 +44,13 @@ const SALON_ZERO = process.env.SALON_ZERO || '1542096651265769573'
 const SOURCE_ZERO = process.env.SOURCE_ZERO || '1540234183451086858'
 const FENETRE_ZERO_H = parseInt(process.env.FENETRE_ZERO_H || '24', 10)
 // La coche posee sous le classement fait office de bouton "j'ai note".
-const COCHE_ZERO = process.env.COCHE_ZERO || '✅'
+const BOUTON_ZERO = process.env.BOUTON_ZERO || 'zero_vu'
+// Mis a 1 par le workflow declenche par le clic sur le bouton.
+const ZERO_VU = process.env.ZERO_VU === '1'
+// Fournis par le worker Cloudflare quand le passage vient d'un clic : ils
+// permettent de repondre "c'est note" dans Discord, en message ephemere.
+const INTERACTION_TOKEN = process.env.INTERACTION_TOKEN || ''
+const APPLICATION_ID = process.env.APPLICATION_ID || ''
 // Les comptes que Nathan a deja pointes. Tant qu'un compte n'y est pas, il
 // reste marque 🆕, meme plusieurs passages de suite.
 const FICHIER_ZERO = process.env.FICHIER_ZERO || 'data/zero-connus.json'
@@ -96,6 +102,15 @@ if (!TOKEN) {
 
 const API = 'https://discord.com/api/v10'
 const ENTETES = { Authorization: 'Bot ' + TOKEN, 'Content-Type': 'application/json' }
+
+// Le salon "0 vue" porte un VRAI bouton Discord. Un bouton n'est cliquable que
+// s'il appartient a une application dont l'URL d'interactions est configuree :
+// c'est le cas du bot PRINCIPAL (worker Cloudflare deja en place), pas du bot
+// teste. Ce salon est donc ecrit par le bot principal quand sa cle existe.
+const TOKEN_ZERO = process.env.DISCORD_BOT_TOKEN || TOKEN
+const ENTETES_ZERO = { Authorization: 'Bot ' + TOKEN_ZERO, 'Content-Type': 'application/json' }
+let MEME_BOT = TOKEN_ZERO === TOKEN
+let ENTETES_Z = MEME_BOT ? ENTETES : ENTETES_ZERO
 const dodo = ms => new Promise(r => setTimeout(r, ms))
 const nombre = n => Number(n || 0).toLocaleString('fr-FR')
 const norm = s => String(s || '').trim().toLowerCase().replace(/[._-]+/g, '_')
@@ -103,12 +118,21 @@ const norm = s => String(s || '').trim().toLowerCase().replace(/[._-]+/g, '_')
 // --- Discord REST ----------------------------------------------------------
 
 async function discord(methode, chemin, corps) {
+  return appelDiscord(ENTETES, methode, chemin, corps)
+}
+
+// Meme appel, mais signe par le bot principal (salon "0 vue" + bouton).
+async function discordZ(methode, chemin, corps) {
+  return appelDiscord(ENTETES_Z, methode, chemin, corps)
+}
+
+async function appelDiscord(entetes, methode, chemin, corps) {
   for (let essai = 0; essai < 5; essai++) {
     let r
     try {
       r = await fetch(API + chemin, {
         method: methode,
-        headers: ENTETES,
+        headers: entetes,
         body: corps ? JSON.stringify(corps) : undefined,
       })
     } catch (e) {
@@ -607,6 +631,23 @@ function purgerHisto() {
   return n
 }
 
+/**
+ * Edite la reponse differee de l'interaction (le "réfléchit..." affiche par
+ * Discord au moment du clic). N'a besoin ni du jeton du bot ni de droits :
+ * le jeton d'interaction suffit, et il n'est valable que ~15 min.
+ */
+async function repondreBouton(texte) {
+  if (!INTERACTION_TOKEN || !APPLICATION_ID) return
+  const url = API + '/webhooks/' + APPLICATION_ID + '/' + INTERACTION_TOKEN + '/messages/@original'
+  try {
+    await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: texte, allowed_mentions: { parse: [] } }),
+    })
+  } catch (e) { console.error('[zero] reponse au bouton : ' + e.message) }
+}
+
 // --- Classement des comptes a 0 vue ----------------------------------------
 
 /**
@@ -646,12 +687,31 @@ async function publierZero(maintenant) {
     .map(([u, n]) => ({ u, n }))
     .sort((a, b) => b.n - a.n || a.u.localeCompare(b.u))
 
-  const anciens = (await lireMessages(SALON_ZERO, 2))
-    .filter(m => m.author && m.author.id === MOI)
+  // Qui ecrit dans ce salon ? Le bot principal si sa cle est fournie (c'est lui
+  // qui porte le bouton), sinon le bot teste.
+  let moiZero = MOI
+  if (!MEME_BOT) {
+    // Le bot principal doit voir le salon ET pouvoir s'y exprimer. S'il ne le
+    // voit pas, on repasse au bot teste : pas de bouton, mais un classement.
+    try {
+      await discordZ('GET', '/channels/' + SALON_ZERO)
+      moiZero = (await discordZ('GET', '/users/@me')).id
+    } catch (e) {
+      console.error('[zero] bot principal sans acces au salon (' + e.message + ') — repli sur le bot teste')
+      MEME_BOT = true
+      ENTETES_Z = ENTETES
+    }
+  }
+
+  const tous = (await lireMessages(SALON_ZERO, 2))
     .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+  const anciens = tous.filter(m => m.author && m.author.id === moiZero)
+  // Reliquat du bot teste quand on bascule sur le bot principal : il efface
+  // ses propres messages, sinon le salon afficherait deux classements.
+  const restes = tous.filter(m => m.author && m.author.bot && m.author.id !== moiZero)
 
   // Les comptes deja pointes par Nathan. Ce n'est PAS la liste du passage
-  // precedent : c'est celle qu'il a validee en cliquant sur la reaction. Tant
+  // precedent : c'est celle qu'il a validee en cliquant sur le bouton. Tant
   // qu'il n'a pas clique, un nouveau venu garde son badge, meme des heures.
   let repere = new Set()
   try {
@@ -659,25 +719,15 @@ async function publierZero(maintenant) {
     repere = new Set((j.comptes || []).map(norm))
   } catch { /* premier passage */ }
 
-  // A-t-il clique sur la coche depuis le dernier passage ?
-  const enTete = anciens[0]
-  const valide = !!(enTete && (enTete.reactions || [])
-    .some(r => r.emoji && r.emoji.name === COCHE_ZERO && r.count > 1))
-
-  if (valide) {
-    // Tout ce qu'il vient de lire devient "deja vu" : on repart de la liste
-    // affichee, pas de la nouvelle, sinon un compte apparu entre son clic et
-    // ce passage serait avale sans jamais avoir ete signale.
+  if (ZERO_VU) {
+    // Il vient de cliquer. Tout ce qui est AFFICHE devient "deja vu" : on
+    // repart de la liste a l'ecran, pas de la nouvelle, sinon un compte arrive
+    // entre son clic et ce passage serait avale sans avoir ete signale.
     repere = new Set()
     for (const m of anciens) {
       for (const x of (m.content || '').matchAll(/`([A-Za-z0-9._]{3,30})`/g)) repere.add(norm(x[1]))
     }
-    console.log('[zero] coche cliquee — ' + repere.size + ' compte(s) marques comme vus')
-    // On remet la coche a zero pour le prochain tour.
-    try {
-      await discord('DELETE', '/channels/' + SALON_ZERO + '/messages/' + enTete.id +
-                    '/reactions/' + encodeURIComponent(COCHE_ZERO))
-    } catch (e) { console.error('[zero] reset de la coche : ' + e.message) }
+    console.log('[zero] bouton clique — ' + repere.size + ' compte(s) marques comme vus')
   }
 
   // Tout premier passage : on ne marque personne, sinon les 60 comptes
@@ -696,7 +746,7 @@ async function publierZero(maintenant) {
     lignes.reduce((s, c) => s + c.n, 0) + '** postes à 0 vue' +
     (nouveaux.length ? ' · 🆕 **' + nouveaux.length + '** nouveau' +
       (nouveaux.length > 1 ? 'x' : '') + ' à noter' : '') + '\n' +
-    '_Clique sur ' + COCHE_ZERO + ' sous ce message quand tu as noté les 🆕 : ils repassent en normal, ' +
+    '_Appuie sur le bouton en bas quand tu as noté les 🆕 : ils repassent en normal, ' +
     'et seuls les comptes qui arriveront après seront marqués._'
 
   const pages = []
@@ -711,31 +761,41 @@ async function publierZero(maintenant) {
   if (courant.trim()) pages.push(courant)
   if (!lignes.length) pages[0] = entete + '\n\n_Aucun reel à 0 vue signalé sur la période._'
 
-  let premierId = null
+  // Le bouton va sous la DERNIERE page : c'est la fin de la liste que Nathan
+  // a sous les yeux quand il a fini de noter.
+  const bouton = MEME_BOT ? null : {
+    type: 1,
+    components: [{
+      type: 2,
+      style: 1,
+      label: 'J\'ai noté les nouveaux',
+      emoji: { name: '✅' },
+      custom_id: BOUTON_ZERO,
+    }],
+  }
+
+  let publiees = 0
   for (let i = 0; i < pages.length; i++) {
-    const corps = { content: pages[i], allowed_mentions: { parse: [] } }
+    const dernier = i === pages.length - 1
+    const corps = {
+      content: pages[i],
+      allowed_mentions: { parse: [] },
+      components: dernier && bouton ? [bouton] : [],
+    }
     try {
       if (anciens[i]) {
-        if (anciens[i].content !== pages[i]) {
-          await discord('PATCH', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id, corps)
+        const memeBouton = !!(anciens[i].components || []).length === !!(dernier && bouton)
+        if (anciens[i].content !== pages[i] || !memeBouton) {
+          await discordZ('PATCH', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id, corps)
         }
-        if (i === 0) premierId = anciens[i].id
       } else {
-        const cree = await discord('POST', '/channels/' + SALON_ZERO + '/messages', corps)
-        if (i === 0 && cree) premierId = cree.id
+        await discordZ('POST', '/channels/' + SALON_ZERO + '/messages', corps)
       }
+      publiees++
     } catch (e) {
       console.error('[zero] page ' + (i + 1) + ' : ' + e.message)
     }
     await dodo(PAUSE_DISCORD_MS)
-  }
-
-  // La coche sert de bouton : elle doit toujours etre presente sous l'en-tete.
-  if (premierId) {
-    try {
-      await discord('PUT', '/channels/' + SALON_ZERO + '/messages/' + premierId +
-                    '/reactions/' + encodeURIComponent(COCHE_ZERO) + '/@me')
-    } catch (e) { console.error('[zero] pose de la coche : ' + e.message) }
   }
 
   // Ce qui est affiche maintenant devient la reference : sans ca, un compte
@@ -749,9 +809,18 @@ async function publierZero(maintenant) {
     }, null, 2))
   } catch (e) { console.error('[zero] ecriture de l\'etat : ' + e.message) }
   for (let i = pages.length; i < anciens.length; i++) {
-    try { await discord('DELETE', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id) }
+    try { await discordZ('DELETE', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id) }
     catch (e) { console.error('[zero] suppression : ' + e.message) }
     await dodo(PAUSE_DISCORD_MS)
+  }
+  for (const m of (publiees === pages.length ? restes : [])) {
+    try { await discord('DELETE', '/channels/' + SALON_ZERO + '/messages/' + m.id) }
+    catch (e) { console.error('[zero] ancien message : ' + e.message) }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+  if (ZERO_VU) {
+    await repondreBouton('✅ C\'est noté : ' + repere.size + ' compte(s) marqués comme vus. ' +
+      'Seuls les comptes qui apparaîtront maintenant seront affichés en 🆕.')
   }
   console.log('[zero] ' + lignes.length + ' compte(s) a 0 vue sur ' + FENETRE_ZERO_H + 'h · ' +
               nouveaux.length + ' nouveau(x) · ' + pages.length + ' message(s)' +

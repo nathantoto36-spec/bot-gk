@@ -21,7 +21,10 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
           GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
-          IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
+          # Instagram limite la SESSION liee a ce cookie (429 sur tous les comptes),
+          # pas l'IP : en anonyme les appels passent. Pour reactiver la session,
+          # decommenter la ligne ci-dessous.
+          # IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
           GEELARK_GROUP: 'tkanuya account 2'
           GEELARK_GROUP_RAW: 'true'

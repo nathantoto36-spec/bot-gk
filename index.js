@@ -846,7 +846,7 @@ async function cycle() {
     for (const [salon, nom] of salons) {
       const r = await purgerSalon({
         discord, lireMessages, salon, nom, idx, moiId,
-        pages: PAGES_HISTO, pause: PAUSE_DISCORD_MS,
+        pages: PAGES_HISTO, pause: 400,
       })
       retires += r.supprimes
       for (const u of r.comptes) vus.add(u)

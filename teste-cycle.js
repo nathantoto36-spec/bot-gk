@@ -26,6 +26,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { reelsDuCompte } from './instagram.js'
+import { listAllPhones } from './geelark.js'
 
 // --- Configuration ---------------------------------------------------------
 
@@ -358,7 +359,7 @@ function creneauxPasses(username, maintenant) {
 function construireClassement(maintenant) {
   const par = new Map()
   for (const [code, p] of Object.entries(histo.postes || {})) {
-    if (!p || !p.u) continue
+    if (!p || !p.u || !existe(p.u)) continue
     if (!par.has(p.u)) par.set(p.u, [])
     par.get(p.u).push({ code, ...p })
   }
@@ -521,6 +522,50 @@ async function publierClassement(maintenant, comptes) {
 
 let MOI = ''
 
+// --- Comptes encore existants dans GeeLark ---------------------------------
+
+// null tant qu'on n'a pas pu interroger GeeLark. Dans ce cas on ne filtre RIEN :
+// mieux vaut un classement complet qu'un classement ampute par une panne d'API.
+let vivants = null
+
+/**
+ * Recupere la liste des profils GeeLark. Un compte supprime de GeeLark ne doit
+ * plus apparaitre nulle part : ni dans le classement teste, ni dans celui des
+ * 0 vue. On le fait a chaque passage pour que ce soit automatique, sans avoir
+ * a toucher au planning a la main.
+ */
+async function chargerVivants() {
+  if (!process.env.GEELARK_APP_ID || !process.env.GEELARK_API_KEY) {
+    console.warn('[geelark] identifiants absents — aucun filtrage des comptes supprimes')
+    return
+  }
+  try {
+    const r = await listAllPhones()
+    if (r.error || !r.items || !r.items.length) {
+      console.warn('[geelark] liste indisponible (' + (r.error || 'vide') + ') — aucun filtrage')
+      return
+    }
+    vivants = new Set(r.items.map(p => norm(p.name)).filter(Boolean))
+    console.log('[geelark] ' + vivants.size + ' profils actifs')
+  } catch (e) {
+    console.warn('[geelark] echec (' + e.message + ') — aucun filtrage')
+  }
+}
+
+/** true si le compte existe encore dans GeeLark (ou si on ne sait pas). */
+function existe(u) { return !vivants || vivants.has(norm(u)) }
+
+/** Retire de l'historique les postes des comptes disparus de GeeLark. */
+function purgerHisto() {
+  if (!vivants) return 0
+  let n = 0
+  for (const [code, p] of Object.entries(histo.postes || {})) {
+    if (!p || !p.u || !existe(p.u)) { delete histo.postes[code]; n++ }
+  }
+  if (n) console.log('[geelark] ' + n + ' poste(s) de comptes supprimes retires de l\'historique')
+  return n
+}
+
 // --- Classement des comptes a 0 vue ----------------------------------------
 
 /**
@@ -556,6 +601,7 @@ async function publierZero(maintenant) {
   }
 
   const lignes = [...par.entries()]
+    .filter(([u]) => existe(u))   // un compte supprime de GeeLark sort du classement
     .map(([u, n]) => ({ u, n }))
     .sort((a, b) => b.n - a.n || a.u.localeCompare(b.u))
 
@@ -613,6 +659,11 @@ async function cycle() {
   MOI = moi.id
   console.log('[teste] connecte en tant que ' + moi.username + ' (' + moi.id + ')')
 
+  // Qui existe encore dans GeeLark ? Sert a exclure partout les comptes
+  // supprimes, automatiquement, sans retoucher au planning.
+  await chargerVivants()
+  purgerHisto()
+
   // Ce classement ne depend que de Discord : on le fait en premier, comme ca il
   // reste a jour meme les jours ou Instagram ne repond pas.
   try { await publierZero(Date.now()) }
@@ -645,7 +696,13 @@ async function cycle() {
   console.log('[teste] deja postes : ' + dejaPoste.size + ' feedbacks · ' +
               dejaFaible.size + ' comptes faibles')
 
-  const comptes = comptesSuivis()
+  // Les comptes supprimes de GeeLark sortent du suivi automatiquement.
+  const tousLesComptes = comptesSuivis()
+  const comptes = tousLesComptes.filter(existe)
+  if (comptes.length < tousLesComptes.length) {
+    console.log('[geelark] ' + (tousLesComptes.length - comptes.length) +
+                ' compte(s) du planning n\'existent plus dans GeeLark — ignores')
+  }
   const maintenant = Date.now()
   const aPoster = []
   const faibles = []

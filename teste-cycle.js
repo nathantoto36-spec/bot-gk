@@ -43,6 +43,13 @@ const SALON_CLASSEMENT = process.env.SALON_CLASSEMENT || '1541918389876957184'
 const SALON_ZERO = process.env.SALON_ZERO || '1542096651265769573'
 const SOURCE_ZERO = process.env.SOURCE_ZERO || '1540234183451086858'
 const FENETRE_ZERO_H = parseInt(process.env.FENETRE_ZERO_H || '24', 10)
+// La coche posee sous le classement fait office de bouton "j'ai note".
+const COCHE_ZERO = process.env.COCHE_ZERO || '✅'
+// Les comptes que Nathan a deja pointes. Tant qu'un compte n'y est pas, il
+// reste marque 🆕, meme plusieurs passages de suite.
+const FICHIER_ZERO = process.env.FICHIER_ZERO || 'data/zero-connus.json'
+// Passage allege : uniquement le classement des 0 vue, aucun appel Instagram.
+const ZERO_SEUL = process.env.ZERO_SEUL === '1'
 
 const PALIERS = (process.env.PALIERS_TESTE || '1,3,6,10')
   .split(',').map(x => parseFloat(x.trim())).filter(n => n > 0).sort((a, b) => a - b)
@@ -639,20 +646,47 @@ async function publierZero(maintenant) {
     .map(([u, n]) => ({ u, n }))
     .sort((a, b) => b.n - a.n || a.u.localeCompare(b.u))
 
-  // On lit la version precedente AVANT de composer la nouvelle : tout compte
-  // qui n'y figurait pas est un nouveau venu, et recoit un badge.
   const anciens = (await lireMessages(SALON_ZERO, 2))
     .filter(m => m.author && m.author.id === MOI)
     .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
 
-  const connusAvant = new Set()
-  for (const m of anciens) {
-    for (const x of (m.content || '').matchAll(/`([A-Za-z0-9._]{3,30})`/g)) connusAvant.add(norm(x[1]))
+  // Les comptes deja pointes par Nathan. Ce n'est PAS la liste du passage
+  // precedent : c'est celle qu'il a validee en cliquant sur la reaction. Tant
+  // qu'il n'a pas clique, un nouveau venu garde son badge, meme des heures.
+  let repere = new Set()
+  try {
+    const j = JSON.parse(fs.readFileSync(FICHIER_ZERO, 'utf8'))
+    repere = new Set((j.comptes || []).map(norm))
+  } catch { /* premier passage */ }
+
+  // A-t-il clique sur la coche depuis le dernier passage ?
+  const enTete = anciens[0]
+  const valide = !!(enTete && (enTete.reactions || [])
+    .some(r => r.emoji && r.emoji.name === COCHE_ZERO && r.count > 1))
+
+  if (valide) {
+    // Tout ce qu'il vient de lire devient "deja vu" : on repart de la liste
+    // affichee, pas de la nouvelle, sinon un compte apparu entre son clic et
+    // ce passage serait avale sans jamais avoir ete signale.
+    repere = new Set()
+    for (const m of anciens) {
+      for (const x of (m.content || '').matchAll(/`([A-Za-z0-9._]{3,30})`/g)) repere.add(norm(x[1]))
+    }
+    console.log('[zero] coche cliquee — ' + repere.size + ' compte(s) marques comme vus')
+    // On remet la coche a zero pour le prochain tour.
+    try {
+      await discord('DELETE', '/channels/' + SALON_ZERO + '/messages/' + enTete.id +
+                    '/reactions/' + encodeURIComponent(COCHE_ZERO))
+    } catch (e) { console.error('[zero] reset de la coche : ' + e.message) }
   }
-  // Premier passage (salon vide) : personne n'est "nouveau", sinon tout le
-  // monde le serait et le badge ne voudrait plus rien dire.
-  const premierPassage = connusAvant.size === 0
-  const nouveaux = premierPassage ? [] : lignes.filter(c => !connusAvant.has(norm(c.u)))
+
+  // Tout premier passage : on ne marque personne, sinon les 60 comptes
+  // seraient tous "nouveaux" et le badge ne voudrait rien dire.
+  const amorce = repere.size === 0
+  if (amorce) for (const c of lignes) repere.add(norm(c.u))
+
+  const estNouveau = u => !repere.has(norm(u))
+  const nouveaux = lignes.filter(c => estNouveau(c.u))
 
   const entete = '# ‼️ Comptes avec des reels à 0 vue — ' + FENETRE_ZERO_H + " dernières heures\n" +
     'Mis à jour le ' + new Date(maintenant).toLocaleString('fr-FR', {
@@ -661,9 +695,9 @@ async function publierZero(maintenant) {
     }) + ' · **' + lignes.length + '** comptes · **' +
     lignes.reduce((s, c) => s + c.n, 0) + '** postes à 0 vue' +
     (nouveaux.length ? ' · 🆕 **' + nouveaux.length + '** nouveau' +
-      (nouveaux.length > 1 ? 'x' : '') + ' depuis le dernier passage' : '')
-
-  const estNouveau = u => !premierPassage && !connusAvant.has(norm(u))
+      (nouveaux.length > 1 ? 'x' : '') + ' à noter' : '') + '\n' +
+    '_Clique sur ' + COCHE_ZERO + ' sous ce message quand tu as noté les 🆕 : ils repassent en normal, ' +
+    'et seuls les comptes qui arriveront après seront marqués._'
 
   const pages = []
   let courant = entete
@@ -677,6 +711,7 @@ async function publierZero(maintenant) {
   if (courant.trim()) pages.push(courant)
   if (!lignes.length) pages[0] = entete + '\n\n_Aucun reel à 0 vue signalé sur la période._'
 
+  let premierId = null
   for (let i = 0; i < pages.length; i++) {
     const corps = { content: pages[i], allowed_mentions: { parse: [] } }
     try {
@@ -684,14 +719,35 @@ async function publierZero(maintenant) {
         if (anciens[i].content !== pages[i]) {
           await discord('PATCH', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id, corps)
         }
+        if (i === 0) premierId = anciens[i].id
       } else {
-        await discord('POST', '/channels/' + SALON_ZERO + '/messages', corps)
+        const cree = await discord('POST', '/channels/' + SALON_ZERO + '/messages', corps)
+        if (i === 0 && cree) premierId = cree.id
       }
     } catch (e) {
       console.error('[zero] page ' + (i + 1) + ' : ' + e.message)
     }
     await dodo(PAUSE_DISCORD_MS)
   }
+
+  // La coche sert de bouton : elle doit toujours etre presente sous l'en-tete.
+  if (premierId) {
+    try {
+      await discord('PUT', '/channels/' + SALON_ZERO + '/messages/' + premierId +
+                    '/reactions/' + encodeURIComponent(COCHE_ZERO) + '/@me')
+    } catch (e) { console.error('[zero] pose de la coche : ' + e.message) }
+  }
+
+  // Ce qui est affiche maintenant devient la reference : sans ca, un compte
+  // deja signale redeviendrait "nouveau" au passage suivant.
+  try {
+    fs.mkdirSync(path.dirname(FICHIER_ZERO), { recursive: true })
+    fs.writeFileSync(FICHIER_ZERO, JSON.stringify({
+      maj: new Date(maintenant).toISOString(),
+      // Les nouveaux NE sont PAS ajoutes : ils gardent leur badge jusqu'au clic.
+      comptes: [...repere].sort(),
+    }, null, 2))
+  } catch (e) { console.error('[zero] ecriture de l\'etat : ' + e.message) }
   for (let i = pages.length; i < anciens.length; i++) {
     try { await discord('DELETE', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id) }
     catch (e) { console.error('[zero] suppression : ' + e.message) }
@@ -723,6 +779,10 @@ async function cycle() {
   // reste a jour meme les jours ou Instagram ne repond pas.
   try { await publierZero(Date.now()) }
   catch (e) { console.error('[zero] echec : ' + e.message) }
+
+  // Le passage court s'arrete la : il sert a reagir vite au clic sur la coche,
+  // sans refaire tout le releve Instagram.
+  if (ZERO_SEUL) { console.log('[teste] passage 0 vue seul, sortie.'); return }
 
   // Ce qui a deja ete poste : on relit les salons, comme le bot principal.
   const dejaPoste = new Set()

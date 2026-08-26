@@ -97,7 +97,7 @@ function estFiche(m) {
  * Supprime dans un salon les fiches des comptes disparus de GeeLark.
  * @returns { supprimes, examines, comptes:[...] }
  */
-export async function purgerSalon({ discord, lireMessages, salon, nom, idx, moiId, pages = 3, pause = 400, partMax = 0.4 }) {
+export async function purgerSalon({ discord, lireMessages, salon, nom, idx, moiId, pages = 3, pause = 400, partMax = 0.75, maxParCycle = 150 }) {
   if (!salon || !idx) return { supprimes: 0, examines: 0, comptes: [] }
   let msgs = []
   try { msgs = await lireMessages(salon, pages) }
@@ -111,15 +111,25 @@ export async function purgerSalon({ discord, lireMessages, salon, nom, idx, moiI
   }
   if (!morts.length) return { supprimes: 0, examines: fiches.length, comptes: [] }
 
+  // Un salon presque entierement "mort" trahit une liste GeeLark cassee, pas un
+  // vrai retard de menage : dans le doute on ne touche a rien.
   if (fiches.length >= 10 && morts.length > fiches.length * partMax) {
     console.warn('[nettoyage] ' + nom + ' : ' + morts.length + '/' + fiches.length +
                  ' messages seraient supprimes — anormal, on ne touche a rien.')
     return { supprimes: 0, examines: fiches.length, comptes: [], suspect: true }
   }
 
+  // Gros retard : on en fait une partie par cycle, pour ne pas faire deborder
+  // le temps d'execution. Le reste part au passage suivant.
+  const lot = morts.slice(0, maxParCycle)
+  if (morts.length > lot.length) {
+    console.log('[nettoyage] ' + nom + ' : ' + morts.length + ' a retirer, ' + lot.length +
+                ' ce cycle (suite au prochain passage)')
+  }
+
   let n = 0
   const comptes = new Set()
-  for (const { m, u } of morts) {
+  for (const { m, u } of lot) {
     try {
       await discord('DELETE', '/channels/' + salon + '/messages/' + m.id)
       n++

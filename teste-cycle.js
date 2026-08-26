@@ -27,6 +27,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { reelsDuCompte } from './instagram.js'
 import { listAllPhones } from './geelark.js'
+import { indexVivants, estVivant } from './nettoyage.js'
 
 // --- Configuration ---------------------------------------------------------
 
@@ -558,6 +559,9 @@ let MOI = ''
 // null tant qu'on n'a pas pu interroger GeeLark. Dans ce cas on ne filtre RIEN :
 // mieux vaut un classement complet qu'un classement ampute par une panne d'API.
 let vivants = null
+// Index tolerant aux renommages : le pseudo Instagram affiche n'est pas
+// toujours le nom du profil GeeLark ("@irislopx" vit sous "irislo.lo").
+let idxVivants = null
 
 /**
  * Recupere la liste des profils GeeLark. Un compte supprime de GeeLark ne doit
@@ -576,7 +580,13 @@ async function chargerVivants() {
       console.warn('[geelark] liste indisponible (' + (r.error || 'vide') + ') — aucun filtrage')
       return
     }
+    // Liste tronquee = on ne peut PAS conclure qu'un compte a ete supprime.
+    if (r.complet === false) {
+      console.warn('[geelark] liste incomplete (' + r.items.length + '/' + r.total + ') — aucun filtrage')
+      return
+    }
     vivants = new Set(r.items.map(p => norm(p.name)).filter(Boolean))
+    idxVivants = indexVivants(r.items)
     console.log('[geelark] ' + vivants.size + ' profils actifs')
   } catch (e) {
     console.warn('[geelark] echec (' + e.message + ') — aucun filtrage')
@@ -584,7 +594,41 @@ async function chargerVivants() {
 }
 
 /** true si le compte existe encore dans GeeLark (ou si on ne sait pas). */
-function existe(u) { return !vivants || vivants.has(norm(u)) }
+// Un compte renomme sur Instagram garde son ancien nom de profil cote GeeLark :
+// on accepte donc aussi un nom a une ou deux lettres pres, sinon on le
+// declarerait supprime a tort.
+function existe(u) {
+  if (!vivants) return true
+  if (vivants.has(norm(u))) return true
+  return idxVivants ? estVivant(u, idxVivants) : false
+}
+
+/**
+ * Retire du planning teste les comptes qui n'ont plus de profil GeeLark.
+ * Le fichier est reecrit et commite par le workflow : plus besoin d'y toucher
+ * a la main quand un cloud phone est supprime.
+ */
+function purgerPlanning() {
+  if (!vivants) return []
+  const ps = planning.pseudos || {}
+  const partis = []
+  for (const cle of Object.keys(planning.comptes || {})) {
+    const pseudo = ps[cle] || cle
+    if (existe(cle) || existe(pseudo)) continue
+    partis.push(pseudo)
+    delete planning.comptes[cle]
+    delete ps[cle]
+    if (planning.groupes) delete planning.groupes[cle]
+  }
+  if (!partis.length) return []
+  try {
+    fs.writeFileSync(PLANNING, JSON.stringify(planning, null, 2) + '\n')
+    console.log('[planning] ' + partis.length + ' compte(s) retires (plus dans GeeLark) : ' + partis.join(', '))
+  } catch (e) {
+    console.error('[planning] ecriture impossible : ' + e.message)
+  }
+  return partis
+}
 
 /**
  * Les salons "moins de 100 vues" et "plus de 200 vues" sont des journaux : un
@@ -837,6 +881,7 @@ async function cycle() {
   // Qui existe encore dans GeeLark ? Sert a exclure partout les comptes
   // supprimes, automatiquement, sans retoucher au planning.
   await chargerVivants()
+  purgerPlanning()
   purgerHisto()
   try {
     await nettoyerJournal(SALON_FAIBLE, 'moins de 100 vues')

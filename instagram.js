@@ -9,7 +9,18 @@
 const UA_WEB = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 const IG_APP_ID = '936619743392459'
 
+let cookieAnnonce = false
 function cookie() {
+  const c = process.env.IG_SESSION_COOKIE_TESTE || process.env.IG_SESSION_COOKIE || ''
+  if (!cookieAnnonce) {
+    cookieAnnonce = true
+    // On n'affiche JAMAIS la valeur, seulement de quoi diagnostiquer.
+    console.log('[insta] cookie de session : ' +
+      (c ? (c.length + ' caracteres, prefixe sessionid= ' + (c.trim().startsWith('sessionid=') ? 'OUI' : 'NON')) : 'ABSENT'))
+  }
+  return c
+}
+function cookieBrut() {
   // IG_SESSION_COOKIE_TESTE d'abord : quand ce bot tourne dans le meme service
   // que bot-gk, il peut avoir son propre cookie sans toucher a celui du bot
   // principal. Sinon on retombe sur le cookie du service.
@@ -102,7 +113,7 @@ export async function reelsDuCompte(username, combien = 12, opts = {}) {
                   '/username/?count=' + combien + (maxId ? '&max_id=' + encodeURIComponent(maxId) : '')
       const r = await fetchRetry(url, { headers: headers(username) })
       if (r.status === 401) return tous.length ? { reels: tous } : { erreur: 'cookie_invalide' }
-      if (r.status === 429) return tous.length ? { reels: tous } : { erreur: 'rate_limit' }
+      if (r.status === 429) { if (tous.length) return { reels: tous }; break } // on tentera web_profile_info
       if (!r.ok) break
       const j = await r.json().catch(() => null)
       const items = (j && (j.items || (j.user && j.user.items))) || []

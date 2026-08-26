@@ -54,7 +54,12 @@ const PAUSE_INSTA_MS = parseInt(process.env.PAUSE_INSTA_MS || '1800', 10)
 const PAUSE_DISCORD_MS = 900
 const PAGES_HISTO = 3
 // Profondeur maximale dans le fil Instagram quand il manque des postes teste.
-const PAGES_INSTA_MAX = parseInt(process.env.PAGES_INSTA_MAX || '6', 10)
+const PAGES_INSTA_MAX = parseInt(process.env.PAGES_INSTA_MAX || '3', 10)
+// Combien de comptes au maximum font cette remontee profonde par passage.
+const DEEP_MAX = parseInt(process.env.DEEP_MAX || '8', 10)
+// Budget de temps pour le releve Instagram, avant de passer a la publication.
+// Doit rester nettement sous le timeout du job GitHub.
+const BUDGET_MS = parseInt(process.env.BUDGET_MIN || '8', 10) * 60 * 1000
 
 // Tolerance entre l'heure programmee et la publication reelle : un flow GeeLark
 // met 2 a 4 min, plus le temps de demarrage du telephone.
@@ -559,7 +564,21 @@ async function cycle() {
     parCompte.set(norm(p.u), (parCompte.get(norm(p.u)) || 0) + 1)
   }
 
+  // Le job GitHub est coupe net a timeout-minutes. Un cycle qui depasse est
+  // ANNULE : rien n'est publie, rien n'est commite, et le salon parait fige.
+  // On se donne donc un budget et on s'arrete proprement avant la coupe.
+  const debutCycle = Date.now()
+  let scannes = 0
+  let profonds = 0
+  let interrompu = false
+
   for (const u of comptes) {
+    if (Date.now() - debutCycle > BUDGET_MS) {
+      interrompu = true
+      console.warn('[teste] budget de ' + Math.round(BUDGET_MS / 60000) + ' min atteint apres ' +
+                   scannes + '/' + comptes.length + ' comptes — on publie ce quon a.')
+      break
+    }
     // Creneaux teste deja passes pour ce compte.
     const creneaux = (planning.comptes || {})[norm(u)] || []
     const passes = creneaux
@@ -570,7 +589,11 @@ async function cycle() {
     // Il manque des postes : on remonte le fil jusqu'au plus ancien creneau
     // passe. Sinon une seule page suffit — c'est le cas courant, et ca evite
     // de matraquer Instagram toutes les 10 minutes.
-    const manque = passes.length > connus
+    // La remontee profonde coute plusieurs pages Instagram : on la reserve a
+    // quelques comptes par passage, les autres seront repris a l'heure suivante.
+    const manque = passes.length > connus && profonds < DEEP_MAX
+    if (manque) profonds++
+    scannes++
     const r = await reelsDuCompte(u, 12, manque
       ? { jusquA: passes[0] - TOLERANCE_MS, maxPages: PAGES_INSTA_MAX, pausePageMs: PAUSE_INSTA_MS }
       : {})
@@ -579,7 +602,7 @@ async function cycle() {
       console.warn('[insta] ' + u + ' -> ' + r.erreur)
       // Rate limit : on ralentit franchement au lieu d'enchainer, Instagram
       // reouvre souvent la porte au bout de quelques dizaines de secondes.
-      await dodo(r.erreur === 'rate_limit' ? Math.min(PAUSE_INSTA_MS * 8, 20000) : PAUSE_INSTA_MS)
+      await dodo(r.erreur === 'rate_limit' ? Math.min(PAUSE_INSTA_MS * 4, 8000) : PAUSE_INSTA_MS)
       continue
     }
     const reelsVus = (r.reels || []).filter(x => x.code && x.posteA)
@@ -646,8 +669,8 @@ async function cycle() {
   // Instagram limite parfois le runner GitHub (HTTP 429) : le cycle ne voit
   // alors rien, et ecraser l'etat avec du vide ferait perdre la tendance ET le
   // classement. On sort sans rien toucher : le passage suivant reprendra.
-  if (comptes.length > 0 && erreurs >= Math.max(3, comptes.length * 0.4)) {
-    console.warn('[teste] ' + erreurs + '/' + comptes.length + ' comptes en erreur Instagram ' +
+  if (scannes > 0 && erreurs >= Math.max(3, scannes * 0.4)) {
+    console.warn('[teste] ' + erreurs + '/' + scannes + ' comptes en erreur Instagram ' +
                  '(rate limit ?) — rien nest publie ni ecrase, on garde letat precedent.')
     return
   }
@@ -727,7 +750,10 @@ async function cycle() {
 
   const pagesRang = await publierClassement(maintenant, comptes)
 
-  console.log('[teste] ' + comptes.length + ' comptes · ' + postes + ' feedback(s) · ' +
+  console.log('[teste] ' + scannes + '/' + comptes.length + ' comptes scannes' +
+              (interrompu ? ' (budget atteint)' : '') + ' · ' +
+              profonds + ' remontee(s) profonde(s) · ' +
+              Math.round((Date.now() - debutCycle) / 1000) + 's · ' + postes + ' feedback(s) · ' +
               signales + ' faible(s) · ' + valides + ' au-dessus de ' + SEUIL + ' vues · ' +
               Object.keys(nouveauxReleves).length + ' releve(s) · ' +
               Object.keys(histo.postes).length + ' poste(s) au classement (' + pagesRang + ' message(s)) · ' +

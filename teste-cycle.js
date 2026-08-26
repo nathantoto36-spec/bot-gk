@@ -37,6 +37,11 @@ const SALON_FORT = process.env.SALON_FORT || '1541883607478702261'
 // Salon du classement : reecrit a chaque passage, il montre l'etat courant de
 // tous les comptes en teste (moyenne + vues de chaque poste teste).
 const SALON_CLASSEMENT = process.env.SALON_CLASSEMENT || '1541918389876957184'
+// Classement des comptes qui accumulent des reels a 0 vue. La source est le
+// salon ou le bot principal signale chaque reel a 0 vue : on compte, on classe.
+const SALON_ZERO = process.env.SALON_ZERO || '1542096651265769573'
+const SOURCE_ZERO = process.env.SOURCE_ZERO || '1540234183451086858'
+const FENETRE_ZERO_H = parseInt(process.env.FENETRE_ZERO_H || '24', 10)
 
 const PALIERS = (process.env.PALIERS_TESTE || '1,3,6,10')
   .split(',').map(x => parseFloat(x.trim())).filter(n => n > 0).sort((a, b) => a - b)
@@ -516,11 +521,102 @@ async function publierClassement(maintenant, comptes) {
 
 let MOI = ''
 
+// --- Classement des comptes a 0 vue ----------------------------------------
+
+/**
+ * Compte, par compte Instagram, le nombre de reels signales a 0 vue dans les
+ * dernieres FENETRE_ZERO_H heures, et reecrit le classement dans SALON_ZERO.
+ *
+ * La source est le salon d'alertes du bot principal : chaque message y porte un
+ * embed "Reel a 0 vue" avec un pied gk0:<code>. On dedoublonne sur ce code,
+ * sinon un reel re-signale a plusieurs paliers compterait double.
+ *
+ * N'utilise QUE Discord : ce classement reste juste meme quand Instagram ne
+ * repond pas.
+ */
+async function publierZero(maintenant) {
+  if (!SALON_ZERO || !SOURCE_ZERO) return 0
+  const limite = maintenant - FENETRE_ZERO_H * 3600e3
+  const vus = new Set()
+  const par = new Map()
+
+  for (const m of await lireMessages(SOURCE_ZERO, 5)) {
+    if (Date.parse(m.timestamp) < limite) continue
+    for (const e of (m.embeds || [])) {
+      const code = (e.footer && /^gk0:(.+)$/.exec(e.footer.text || '') || [])[1]
+      // Le pseudo est dans le bloc de code de la description.
+      const u = (/`@([A-Za-z0-9._]+)`/.exec(e.description || '') ||
+                 /·\s*@([A-Za-z0-9._]+)/.exec(e.title || '') || [])[1]
+      if (!u) continue
+      const cle = code ? u + '|' + code : u + '|' + m.id
+      if (vus.has(cle)) continue
+      vus.add(cle)
+      par.set(u, (par.get(u) || 0) + 1)
+    }
+  }
+
+  const lignes = [...par.entries()]
+    .map(([u, n]) => ({ u, n }))
+    .sort((a, b) => b.n - a.n || a.u.localeCompare(b.u))
+
+  const entete = '# ‼️ Comptes avec des reels à 0 vue — ' + FENETRE_ZERO_H + " dernières heures\n" +
+    'Mis à jour le ' + new Date(maintenant).toLocaleString('fr-FR', {
+      timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    }) + ' · **' + lignes.length + '** comptes · **' +
+    lignes.reduce((s, c) => s + c.n, 0) + '** postes à 0 vue'
+
+  const pages = []
+  let courant = entete
+  lignes.forEach((c, i) => {
+    const bloc = '\n' + (i + 1) + '. `' + c.u + '` — **' + c.n + '** poste' + (c.n > 1 ? 's' : '') +
+                 ' à 0 vue · [profil](<https://www.instagram.com/' + c.u + '/>)'
+    if (courant.length + bloc.length > MAX_MSG) { pages.push(courant); courant = bloc.trimStart() }
+    else courant += bloc
+  })
+  if (courant.trim()) pages.push(courant)
+  if (!lignes.length) pages[0] = entete + '\n\n_Aucun reel à 0 vue signalé sur la période._'
+
+  // Meme principe que le classement teste : on modifie au lieu de republier.
+  const anciens = (await lireMessages(SALON_ZERO, 2))
+    .filter(m => m.author && m.author.id === MOI)
+    .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+
+  for (let i = 0; i < pages.length; i++) {
+    const corps = { content: pages[i], allowed_mentions: { parse: [] } }
+    try {
+      if (anciens[i]) {
+        if (anciens[i].content !== pages[i]) {
+          await discord('PATCH', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id, corps)
+        }
+      } else {
+        await discord('POST', '/channels/' + SALON_ZERO + '/messages', corps)
+      }
+    } catch (e) {
+      console.error('[zero] page ' + (i + 1) + ' : ' + e.message)
+    }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+  for (let i = pages.length; i < anciens.length; i++) {
+    try { await discord('DELETE', '/channels/' + SALON_ZERO + '/messages/' + anciens[i].id) }
+    catch (e) { console.error('[zero] suppression : ' + e.message) }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+  console.log('[zero] ' + lignes.length + ' compte(s) a 0 vue sur ' + FENETRE_ZERO_H + 'h · ' +
+              pages.length + ' message(s)')
+  return lignes.length
+}
+
 async function cycle() {
   console.log('[teste] demarrage (GitHub Actions, one-shot)')
   const moi = await discord('GET', '/users/@me')
   MOI = moi.id
   console.log('[teste] connecte en tant que ' + moi.username + ' (' + moi.id + ')')
+
+  // Ce classement ne depend que de Discord : on le fait en premier, comme ca il
+  // reste a jour meme les jours ou Instagram ne repond pas.
+  try { await publierZero(Date.now()) }
+  catch (e) { console.error('[zero] echec : ' + e.message) }
 
   // Ce qui a deja ete poste : on relit les salons, comme le bot principal.
   const dejaPoste = new Set()

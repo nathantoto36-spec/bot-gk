@@ -51,6 +51,8 @@ jobs:
           SALON_FAIBLE: '1541844783193129081'
           SALON_FORT: '1541883607478702261'
           SALON_CLASSEMENT: '1541918389876957184'
+          SALON_ZERO: '1542096651265769573'
+          SOURCE_ZERO: '1540234183451086858'
         run: node teste-cycle.js
 
       - name: Enregistrer les releves de vues
@@ -58,7 +60,7 @@ jobs:
           if [ -n "$(git status --porcelain data/)" ]; then
             git config user.name  "bot-gk[bot]"
             git config user.email "bot-gk[bot]@users.noreply.github.com"
-            git add data/vues-teste.json data/historique-teste.json
+            git add data/vues-teste.json data/historique-teste.json data/zero-connus.json
             git commit -m "teste: releve des vues"
             # Un autre passage a pu commiter entre-temps : on rebase avant de pousser.
             git pull --rebase --autostash origin main || true

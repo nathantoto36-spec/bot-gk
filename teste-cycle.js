@@ -555,6 +555,27 @@ async function chargerVivants() {
 /** true si le compte existe encore dans GeeLark (ou si on ne sait pas). */
 function existe(u) { return !vivants || vivants.has(norm(u)) }
 
+/**
+ * Les salons "moins de 100 vues" et "plus de 200 vues" sont des journaux : un
+ * message par reel, jamais reecrits. Quand un compte est supprime de GeeLark,
+ * ses anciens messages doivent partir aussi, sinon il reste visible pour
+ * toujours. On relit donc le salon et on efface ce qui le concerne.
+ */
+async function nettoyerJournal(salon, nom) {
+  if (!salon || !vivants) return 0
+  let n = 0
+  for (const m of await lireMessages(salon, 5)) {
+    if (!m.author || m.author.id !== MOI) continue
+    const u = (/`([A-Za-z0-9._]{3,30})`/.exec(m.content || '') || [])[1]
+    if (!u || existe(u)) continue
+    try { await discord('DELETE', '/channels/' + salon + '/messages/' + m.id); n++ }
+    catch (e) { console.error('[nettoyage] ' + nom + ' : ' + e.message) }
+    await dodo(PAUSE_DISCORD_MS)
+  }
+  if (n) console.log('[nettoyage] ' + nom + ' : ' + n + ' message(s) de comptes supprimes effaces')
+  return n
+}
+
 /** Retire de l'historique les postes des comptes disparus de GeeLark. */
 function purgerHisto() {
   if (!vivants) return 0
@@ -663,6 +684,10 @@ async function cycle() {
   // supprimes, automatiquement, sans retoucher au planning.
   await chargerVivants()
   purgerHisto()
+  try {
+    await nettoyerJournal(SALON_FAIBLE, 'moins de 100 vues')
+    await nettoyerJournal(SALON_FORT, 'plus de ' + SEUIL + ' vues')
+  } catch (e) { console.error('[nettoyage] echec : ' + e.message) }
 
   // Ce classement ne depend que de Discord : on le fait en premier, comme ca il
   // reste a jour meme les jours ou Instagram ne repond pas.

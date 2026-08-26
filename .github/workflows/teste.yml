@@ -57,10 +57,10 @@ jobs:
 
       - name: Enregistrer les releves de vues
         run: |
-          if [ -n "$(git status --porcelain data/)" ]; then
+          if [ -n "$(git status --porcelain data/ teste/planning-teste.json)" ]; then
             git config user.name  "bot-gk[bot]"
             git config user.email "bot-gk[bot]@users.noreply.github.com"
-            git add data/vues-teste.json data/historique-teste.json data/zero-connus.json
+            git add data/vues-teste.json data/historique-teste.json data/zero-connus.json teste/planning-teste.json
             git commit -m "teste: releve des vues"
             # Un autre passage a pu commiter entre-temps : on rebase avant de pousser.
             git pull --rebase --autostash origin main || true

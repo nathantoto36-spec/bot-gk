@@ -74,16 +74,29 @@ function normalize(p = {}) {
 export async function listAllPhones({ pageSize = 100 } = {}) {
   let page = 1
   let all = []
+  let total = null
   for (let i = 0; i < 30; i++) {
     const res = await post('/open/v1/phone/list', { page, pageSize })
     if (res && res.error) return { error: res.error, msg: res.msg, body: res.body }
     const data = (res && (res.data || res.result || res)) || {}
     const items = data.items || data.list || data.records || data.rows || []
+    if (total == null && Number.isFinite(Number(data.total))) total = Number(data.total)
     all = all.concat(items.map(normalize))
-    if (items.length < pageSize) break
+    // On ne s'arrete PAS sur une page courte : GeeLark en renvoie parfois une
+    // au milieu de la liste, et on croyait alors que les profils suivants
+    // avaient ete supprimes. C'est le compteur "total" qui fait foi.
+    if (!items.length) break
+    if (total != null && all.length >= total) break
+    if (total == null && items.length < pageSize) break
     page++
   }
-  return { items: all }
+  // complet = on a bien tout ce que GeeLark annonce. Sans cette garantie, on
+  // ne doit JAMAIS conclure qu'un compte absent de la liste a ete supprime.
+  const complet = total == null ? null : all.length >= total
+  if (total != null && !complet) {
+    console.warn('[geelark] liste incomplete : ' + all.length + '/' + total + ' profils')
+  }
+  return { items: all, total, complet }
 }
 
 // Normalise un nom de groupe : minuscules, emojis/coches/ponctuation retires.
@@ -133,18 +146,18 @@ export async function listPhonesInGroup(groupe) {
     const tRaw = String(groupe || '').toLowerCase().trim()
     const items = r.items.filter(p => String(p.groupName || '').toLowerCase().trim() === tRaw)
     console.log('[geelark] mode BRUT : cible exacte "' + tRaw + '" -> ' + items.length + ' comptes')
-    return { items, totalCompte: r.items.length, groupes }
+    return { items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
   }
 
   const cible = normGroupe(groupe)
-  if (!cible) return { items: r.items, totalCompte: r.items.length, groupes }
+  if (!cible) return { items: r.items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
 
   const exact = String(process.env.GEELARK_GROUP_EXACT || 'true') !== 'false'
   const items = r.items.filter(p => {
     const n = normGroupe(p.groupName)
     return exact ? n === cible : n.includes(cible)
   })
-  return { items, totalCompte: r.items.length, groupes }
+  return { items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
 }
 
 // Un nom de profil GeeLark est reputé être le pseudo Instagram.

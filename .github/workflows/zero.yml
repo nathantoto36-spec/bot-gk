@@ -50,10 +50,10 @@ jobs:
 
       - name: Enregistrer les comptes deja pointes
         run: |
-          if [ -n "$(git status --porcelain data/zero-connus.json)" ]; then
+          if [ -n "$(git status --porcelain data/zero-connus.json teste/planning-teste.json)" ]; then
             git config user.name  "bot-gk[bot]"
             git config user.email "bot-gk[bot]@users.noreply.github.com"
-            git add data/zero-connus.json
+            git add data/zero-connus.json teste/planning-teste.json
             git commit -m "zero: comptes deja pointes"
             git pull --rebase --autostash origin main || true
             git push

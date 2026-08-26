@@ -639,28 +639,43 @@ async function publierZero(maintenant) {
     .map(([u, n]) => ({ u, n }))
     .sort((a, b) => b.n - a.n || a.u.localeCompare(b.u))
 
+  // On lit la version precedente AVANT de composer la nouvelle : tout compte
+  // qui n'y figurait pas est un nouveau venu, et recoit un badge.
+  const anciens = (await lireMessages(SALON_ZERO, 2))
+    .filter(m => m.author && m.author.id === MOI)
+    .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+
+  const connusAvant = new Set()
+  for (const m of anciens) {
+    for (const x of (m.content || '').matchAll(/`([A-Za-z0-9._]{3,30})`/g)) connusAvant.add(norm(x[1]))
+  }
+  // Premier passage (salon vide) : personne n'est "nouveau", sinon tout le
+  // monde le serait et le badge ne voudrait plus rien dire.
+  const premierPassage = connusAvant.size === 0
+  const nouveaux = premierPassage ? [] : lignes.filter(c => !connusAvant.has(norm(c.u)))
+
   const entete = '# ‼️ Comptes avec des reels à 0 vue — ' + FENETRE_ZERO_H + " dernières heures\n" +
     'Mis à jour le ' + new Date(maintenant).toLocaleString('fr-FR', {
       timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit',
       hour: '2-digit', minute: '2-digit',
     }) + ' · **' + lignes.length + '** comptes · **' +
-    lignes.reduce((s, c) => s + c.n, 0) + '** postes à 0 vue'
+    lignes.reduce((s, c) => s + c.n, 0) + '** postes à 0 vue' +
+    (nouveaux.length ? ' · 🆕 **' + nouveaux.length + '** nouveau' +
+      (nouveaux.length > 1 ? 'x' : '') + ' depuis le dernier passage' : '')
+
+  const estNouveau = u => !premierPassage && !connusAvant.has(norm(u))
 
   const pages = []
   let courant = entete
   lignes.forEach((c, i) => {
-    const bloc = '\n' + (i + 1) + '. `' + c.u + '` — **' + c.n + '** poste' + (c.n > 1 ? 's' : '') +
+    const bloc = '\n' + (i + 1) + '. `' + c.u + '`' + (estNouveau(c.u) ? ' 🆕' : '') +
+                 ' — **' + c.n + '** poste' + (c.n > 1 ? 's' : '') +
                  ' à 0 vue · [profil](<https://www.instagram.com/' + c.u + '/>)'
     if (courant.length + bloc.length > MAX_MSG) { pages.push(courant); courant = bloc.trimStart() }
     else courant += bloc
   })
   if (courant.trim()) pages.push(courant)
   if (!lignes.length) pages[0] = entete + '\n\n_Aucun reel à 0 vue signalé sur la période._'
-
-  // Meme principe que le classement teste : on modifie au lieu de republier.
-  const anciens = (await lireMessages(SALON_ZERO, 2))
-    .filter(m => m.author && m.author.id === MOI)
-    .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
 
   for (let i = 0; i < pages.length; i++) {
     const corps = { content: pages[i], allowed_mentions: { parse: [] } }
@@ -683,7 +698,8 @@ async function publierZero(maintenant) {
     await dodo(PAUSE_DISCORD_MS)
   }
   console.log('[zero] ' + lignes.length + ' compte(s) a 0 vue sur ' + FENETRE_ZERO_H + 'h · ' +
-              pages.length + ' message(s)')
+              nouveaux.length + ' nouveau(x) · ' + pages.length + ' message(s)' +
+              (nouveaux.length ? ' : ' + nouveaux.map(c => c.u).join(', ') : ''))
   return lignes.length
 }
 

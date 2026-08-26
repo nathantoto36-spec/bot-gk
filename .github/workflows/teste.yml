@@ -42,7 +42,10 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
           GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
-          IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
+          # Test : Instagram limite la SESSION, pas forcement l'IP. Sans cookie,
+          # les appels sont anonymes — c'est ce qui fonctionne ailleurs.
+          # Pour reactiver la session : decommenter la ligne ci-dessous.
+          # IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
           SALON_TESTE: '1541707020413968444'
           SALON_FAIBLE: '1541844783193129081'

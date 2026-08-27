@@ -1,0 +1,40 @@
+name: chien-de-garde
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      limite:
+        description: "seuil en minutes avant de couper une tache"
+        required: false
+        default: "6"
+      a_blanc:
+        description: "1 = signale sans annuler"
+        required: false
+        default: "0"
+
+concurrency:
+  group: chien-de-garde
+  cancel-in-progress: false
+
+jobs:
+  garde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Surveiller
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          SALON_CHIEN_DE_GARDE: ${{ secrets.SALON_COUT_AUTO }}
+          LIMITE_MIN: ${{ inputs.limite || '6' }}
+          A_BLANC: ${{ inputs.a_blanc || '0' }}
+          DUREE_MIN: "340"
+          PAS_SEC: "60"
+        run: node chien-de-garde.js

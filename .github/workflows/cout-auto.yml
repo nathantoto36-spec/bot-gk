@@ -1,0 +1,50 @@
+name: cout-auto
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "panel | cout | record"
+        required: false
+        default: panel
+  repository_dispatch:
+    types: [cout_auto_jour, cout_auto_hier, cout_auto_semaine, cout_auto_mois]
+  schedule:
+    - cron: "20 2 * * *"      # releve quotidien des jours complets
+
+concurrency:
+  group: cout-auto
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  cout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Executer
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
+          GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
+          SALON_COUT_AUTO: ${{ secrets.SALON_COUT_AUTO }}
+          ACTION: ${{ github.event_name == 'repository_dispatch' && 'cout' || (github.event_name == 'schedule' && 'record' || inputs.action) }}
+          CUSTOM_ID: ${{ github.event.client_payload.custom_id }}
+          INTERACTION_TOKEN: ${{ github.event.client_payload.token }}
+          APPLICATION_ID: ${{ github.event.client_payload.application_id }}
+        run: node cout-auto.js
+
+      - name: Enregistrer l'historique
+        if: github.event_name == 'schedule' || inputs.action == 'record'
+        run: |
+          git config user.name "bot-gk"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/cout-auto-historique.json || true
+          git diff --cached --quiet || git commit -m "cout-auto: releve du jour"
+          git push || true

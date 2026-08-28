@@ -3,10 +3,8 @@
   "genere": "2026-08-25T20:32:20.401Z",
   "legende": "No makeup\n#yummy #instamood #reel #explore #instatravel",
   "pseudos": {
-    "irislopx": "irislopx",
     "oliviarg61": "oliviarg61",
     "paolamamiaa": "paolamamiaa",
-    "irisdmlo": "irisdmlo",
     "lolaji_l": "lolaji.l",
     "kiimnnana": "kiimnnana",
     "takinazanou": "takinazanou",
@@ -34,10 +32,8 @@
     "degolilyx": "degolilyx"
   },
   "groupes": {
-    "irislopx": "✔️tkanuya account",
     "oliviarg61": "✔️tkanuya account",
     "paolamamiaa": "✔️tkanuya account",
-    "irisdmlo": "✔️tkanuya account",
     "lolaji_l": "tkanuya account 2",
     "kiimnnana": "✔️tkanuya account",
     "takinazanou": "✔️tkanuya account",
@@ -65,78 +61,6 @@
     "degolilyx": "✔️tkanuya account"
   },
   "comptes": {
-    "irislopx": [
-      {
-        "epoch": 1787641800,
-        "video": "teste3",
-        "taskId": "634362050616754536"
-      },
-      {
-        "epoch": 1787645520,
-        "video": "teste1",
-        "taskId": "634362056220344500"
-      },
-      {
-        "epoch": 1787660520,
-        "video": "teste2",
-        "taskId": "634362068132168040"
-      },
-      {
-        "epoch": 1787678880,
-        "video": "teste4",
-        "taskId": "634362085261705396"
-      },
-      {
-        "epoch": 1787679240,
-        "video": "teste5",
-        "taskId": "634362086536773812"
-      },
-      {
-        "epoch": 1787697960,
-        "video": "teste3",
-        "taskId": "634362102324134295"
-      },
-      {
-        "epoch": 1787712240,
-        "video": "teste5",
-        "taskId": "634362116383441076"
-      },
-      {
-        "epoch": 1787716680,
-        "video": "teste2",
-        "taskId": "634362120862957928"
-      },
-      {
-        "epoch": 1787735400,
-        "video": "teste4",
-        "taskId": "634362136767758743"
-      },
-      {
-        "epoch": 1787745600,
-        "video": "teste1",
-        "taskId": "634362148696359319"
-      },
-      {
-        "epoch": 1787754120,
-        "video": "teste2",
-        "taskId": "634362156514541928"
-      },
-      {
-        "epoch": 1787772840,
-        "video": "teste5",
-        "taskId": "634362171949580695"
-      },
-      {
-        "epoch": 1787778960,
-        "video": "teste3",
-        "taskId": "634362180958945640"
-      },
-      {
-        "epoch": 1787791560,
-        "video": "teste1",
-        "taskId": "634362191226601652"
-      }
-    ],
     "oliviarg61": [
       {
         "epoch": 1787642280,
@@ -269,33 +193,6 @@
         "epoch": 1787783640,
         "video": "paolamamiaadef",
         "taskId": "634362183525859688"
-      }
-    ],
-    "irisdmlo": [
-      {
-        "epoch": 1787644560,
-        "video": "teste2",
-        "taskId": "634362054341296535"
-      },
-      {
-        "epoch": 1787677920,
-        "video": "teste3",
-        "taskId": "634362082728345960"
-      },
-      {
-        "epoch": 1787711280,
-        "video": "teste4",
-        "taskId": "634362115108372887"
-      },
-      {
-        "epoch": 1787744640,
-        "video": "teste5",
-        "taskId": "634362147404513460"
-      },
-      {
-        "epoch": 1787778000,
-        "video": "teste1",
-        "taskId": "634362179079897448"
       }
     ],
     "lolaji_l": [

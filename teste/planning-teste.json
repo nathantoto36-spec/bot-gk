@@ -12,7 +12,6 @@
     "irisdmlo": "irisdmlo",
     "lola_mollaa": "lola.mollaa",
     "lolaji_l": "lolaji.l",
-    "lola_kelaa": "lola.kelaa",
     "kiimnnana": "kiimnnana",
     "polin_ios": "polin_ios",
     "takinazanou": "takinazanou",
@@ -63,7 +62,6 @@
     "irisdmlo": "✔️tkanuya account",
     "lola_mollaa": "tkanuya account 2",
     "lolaji_l": "tkanuya account 2",
-    "lola_kelaa": "tkanuya account 2",
     "kiimnnana": "✔️tkanuya account",
     "polin_ios": "tkanuya account 2",
     "takinazanou": "✔️tkanuya account",
@@ -596,53 +594,6 @@
         "epoch": 1787789760,
         "video": "teste3",
         "taskId": "634422805093417320"
-      }
-    ],
-    "lola_kelaa": [
-      {
-        "epoch": 1787647920,
-        "video": "teste2",
-        "taskId": "634362059978441064"
-      },
-      {
-        "epoch": 1787665680,
-        "video": "teste4",
-        "taskId": "634362074473955688"
-      },
-      {
-        "epoch": 1787683440,
-        "video": "teste1",
-        "taskId": "634362091553161396"
-      },
-      {
-        "epoch": 1787701200,
-        "video": "teste5",
-        "taskId": "634362106904314036"
-      },
-      {
-        "epoch": 1787718960,
-        "video": "teste3",
-        "taskId": "634362125325697204"
-      },
-      {
-        "epoch": 1787736720,
-        "video": "teste2",
-        "taskId": "634362140458746216"
-      },
-      {
-        "epoch": 1787754480,
-        "video": "teste3",
-        "taskId": "634362157772832948"
-      },
-      {
-        "epoch": 1787772240,
-        "video": "teste1",
-        "taskId": "634362170087309719"
-      },
-      {
-        "epoch": 1787790000,
-        "video": "teste4",
-        "taskId": "634362188626133352"
       }
     ],
     "kiimnnana": [

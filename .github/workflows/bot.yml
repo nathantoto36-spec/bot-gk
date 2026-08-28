@@ -1,7 +1,16 @@
 name: bot
+
+# Cycle horaire (classement groupe 1), en BOUCLE CONTINUE.
+# GitHub retarde beaucoup les crons frequents (constate : ~1 passage toutes
+# les 10 h au lieu de toutes les heures). Comme teste et chien-de-garde, on ne
+# depend donc plus du planificateur : ce job tourne ~5h40 d'affilee et relance
+# index.js toutes les ~60 min. Le cron ne sert qu'a RELANCER la boucle (toutes
+# les 3h). Avec cancel-in-progress false, un nouveau job attend la fin du
+# precedent -> couverture quasi continue. (index.js est sans etat : il lit tout
+# en direct et reposte le classement, donc aucun commit n'est necessaire.)
 on:
   schedule:
-    - cron: '7 * * * *'
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 concurrency:
   group: bot-cycle
@@ -9,14 +18,14 @@ concurrency:
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm install --omit=dev --no-audit --no-fund
-      - name: Cycle horaire
+      - name: Boucle cycle horaire
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
@@ -32,4 +41,14 @@ jobs:
           SALON_MOYENNE: '1540250885664280617'
           SALON_500: '1540410529775091792'
           SALON_LEGENDE: '1540437709385109545'
-        run: node index.js
+        run: |
+          fin=$(( $(date +%s) + 20400 ))   # ~5h40 de boucle
+          i=0
+          while [ "$(date +%s)" -lt "$fin" ]; do
+            echo "::group::cycle horaire (i=$i)"
+            node index.js || true
+            echo "::endgroup::"
+            i=$(( i + 1 ))
+            sleep 3600
+          done
+          echo "Boucle terminee apres $i cycle(s)."

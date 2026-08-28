@@ -1,18 +1,14 @@
 name: zero
 
-# Classement des comptes a 0 vue, et RIEN d'autre.
+# Classement des comptes a 0 vue.
 #
-# Ce passage n'appelle pas Instagram : il relit le salon d'alertes du bot
-# principal et reecrit le classement. Il coute une poignee d'appels Discord
-# et dure ~20 secondes, d'ou la cadence courte.
-#
-# Sa raison d'etre : quand Nathan clique sur la coche pour dire "j'ai note les
-# nouveaux", les badges doivent disparaitre en quelques minutes, sans attendre
-# le passage horaire complet.
+# NOTE : la cadence courte (toutes les 10 min) est desormais assuree par la
+# BOUCLE du workflow "teste" (qui appelle teste-cycle.js avec ZERO_SEUL=1),
+# car GitHub retarde beaucoup les crons frequents. Ce workflow-ci ne garde
+# donc qu'un declenchement MANUEL (workflow_dispatch), utile pour forcer un
+# rafraichissement immediat du classement 0 vue.
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 concurrency:

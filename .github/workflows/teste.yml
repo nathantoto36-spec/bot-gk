@@ -1,19 +1,18 @@
 name: teste
 
-# Suivi des videos teste1 -> teste5 sur les comptes a faible vue.
+# Suivi des videos + classement 0 vue, en BOUCLE CONTINUE.
 #
-# Une fois par heure : releve les vues, compare au releve precedent stocke
-# dans data/vues-teste.json, et poste dans #compte-faible-vue-teste les reels
-# qui viennent de franchir 1h, 3h, 6h ou 10h.
-#
-# L'ecart d'une heure entre deux passages EST la fenetre de tendance : c'est
-# ce qui permet de dire si un reel monte encore (vert) ou stagne (rouge).
-# GitHub peut retarder un passage quand ses runners sont charges ; le message
-# affiche alors l'ecart reel, il reste donc juste.
+# GitHub retarde beaucoup les crons frequents (constate : ~1 passage toutes les
+# 10 h au lieu de toutes les 10 min / 1 h). Comme chien-de-garde, on ne depend
+# donc plus du planificateur : ce job tourne ~5h40 d'affilee et fait tout :
+#   - toutes les ~10 min : classement 0 vue (ZERO_SEUL=1, ne touche pas Instagram)
+#   - toutes les ~60 min : cycle complet (releve des vues Instagram)
+# Le cron ne sert qu'a RELANCER la boucle (toutes les 3h). Avec cancel-in-progress
+# false, un nouveau job attend la fin du precedent -> couverture quasi continue.
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -26,7 +25,7 @@ permissions:
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,7 +33,7 @@ jobs:
           node-version: '20'
       - run: npm install --omit=dev --no-audit --no-fund
 
-      - name: Cycle teste
+      - name: Boucle teste + zero
         env:
           # Si le secret DISCORD_BOT_TOKEN_TESTE existe (bot TAKA), il est
           # utilise ; sinon le script retombe sur le bot principal.
@@ -42,10 +41,6 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           GEELARK_APP_ID: ${{ secrets.GEELARK_APP_ID }}
           GEELARK_API_KEY: ${{ secrets.GEELARK_API_KEY }}
-          # Test : Instagram limite la SESSION, pas forcement l'IP. Sans cookie,
-          # les appels sont anonymes — c'est ce qui fonctionne ailleurs.
-          # Pour reactiver la session : decommenter la ligne ci-dessous.
-          # IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
           SALON_TESTE: '1541707020413968444'
           SALON_FAIBLE: '1541844783193129081'
@@ -53,18 +48,28 @@ jobs:
           SALON_CLASSEMENT: '1541918389876957184'
           SALON_ZERO: '1542096651265769573'
           SOURCE_ZERO: '1540234183451086858'
-        run: node teste-cycle.js
-
-      - name: Enregistrer les releves de vues
         run: |
-          if [ -n "$(git status --porcelain data/ teste/planning-teste.json)" ]; then
-            git config user.name  "bot-gk[bot]"
-            git config user.email "bot-gk[bot]@users.noreply.github.com"
-            git add data/vues-teste.json data/historique-teste.json data/zero-connus.json teste/planning-teste.json
-            git commit -m "teste: releve des vues"
-            # Un autre passage a pu commiter entre-temps : on rebase avant de pousser.
-            git pull --rebase --autostash origin main || true
-            git push
-          else
-            echo "Aucun changement dans les releves."
-          fi
+          git config user.name  "bot-gk[bot]"
+          git config user.email "bot-gk[bot]@users.noreply.github.com"
+          fin=$(( $(date +%s) + 20400 ))   # ~5h40 de boucle
+          i=0
+          while [ "$(date +%s)" -lt "$fin" ]; do
+            if [ $(( i % 6 )) -eq 0 ]; then
+              echo "::group::cycle complet (i=$i)"
+              node teste-cycle.js || true
+              echo "::endgroup::"
+            else
+              echo "::group::zero seul (i=$i)"
+              ZERO_SEUL=1 node teste-cycle.js || true
+              echo "::endgroup::"
+            fi
+            if [ -n "$(git status --porcelain data/ teste/planning-teste.json)" ]; then
+              git add data/vues-teste.json data/historique-teste.json data/zero-connus.json teste/planning-teste.json 2>/dev/null || true
+              git commit -q -m "teste/zero: releve des vues" || true
+              git pull --rebase --autostash -q origin main || true
+              git push -q || true
+            fi
+            i=$(( i + 1 ))
+            sleep 600
+          done
+          echo "Boucle terminee apres $i cycle(s)."

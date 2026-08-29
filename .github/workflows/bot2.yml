@@ -44,7 +44,10 @@ jobs:
           SALON_500: '1540410529775091792'
           SALON_LEGENDE: '1540437709385109545'
           BUDGET_MS: '2100000'
-          INSTA_CONCURRENCE: '5'
+          INSTA_CONCURRENCE: '3'
+          RETENTATIVES: '3'
+          REPOS_MS: '40000'
+          IG_RL_BACKOFF_MS: '6000'
           MAX_MESSAGES: '150'
         run: |
           fin=$(( $(date +%s) + 20400 ))   # ~5h40 de boucle

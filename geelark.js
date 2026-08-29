@@ -137,26 +137,32 @@ export async function listPhonesInGroup(groupe) {
     }
   }
 
+  // On accepte PLUSIEURS groupes separes par une virgule (ex.
+  // "tkanuya account 3,tkanuya account 5") : un compte est retenu s'il
+  // appartient a AU MOINS UN des groupes cibles. Un seul nom (sans virgule)
+  // se comporte exactement comme avant.
+
   // MODE BRUT (GEELARK_GROUP_RAW=true) : comparaison sur le nom EXACT renvoye par
   // GeeLark (minuscules + trim), SANS enlever la coche/emoji. Indispensable quand
   // deux groupes ne different QUE par la coche, ex "tkanuya account 2" (89) vs
   // "✔️tkanuya account 2" (101) : le mode normalise les fusionnerait a tort.
   const raw = String(process.env.GEELARK_GROUP_RAW || 'false') === 'true'
   if (raw) {
-    const tRaw = String(groupe || '').toLowerCase().trim()
-    const items = r.items.filter(p => String(p.groupName || '').toLowerCase().trim() === tRaw)
-    console.log('[geelark] mode BRUT : cible exacte "' + tRaw + '" -> ' + items.length + ' comptes')
+    const ciblesRaw = String(groupe || '').split(',').map(s => s.toLowerCase().trim()).filter(Boolean)
+    const items = r.items.filter(p => ciblesRaw.includes(String(p.groupName || '').toLowerCase().trim()))
+    console.log('[geelark] mode BRUT : cibles exactes ' + JSON.stringify(ciblesRaw) + ' -> ' + items.length + ' comptes')
     return { items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
   }
 
-  const cible = normGroupe(groupe)
-  if (!cible) return { items: r.items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
+  const cibles = String(groupe || '').split(',').map(s => normGroupe(s)).filter(Boolean)
+  if (!cibles.length) return { items: r.items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
 
   const exact = String(process.env.GEELARK_GROUP_EXACT || 'true') !== 'false'
   const items = r.items.filter(p => {
     const n = normGroupe(p.groupName)
-    return exact ? n === cible : n.includes(cible)
+    return exact ? cibles.includes(n) : cibles.some(c => n.includes(c))
   })
+  console.log('[geelark] cibles ' + JSON.stringify(cibles) + ' -> ' + items.length + ' comptes')
   return { items, totalCompte: r.items.length, groupes, tous: r.items, complet: r.complet }
 }
 

@@ -33,7 +33,7 @@ jobs:
           # decommenter la ligne ci-dessous.
           # IG_SESSION_COOKIE: ${{ secrets.IG_SESSION_COOKIE }}
           ALIAS_COMPTES: ${{ secrets.ALIAS_COMPTES }}
-          GEELARK_GROUP: 'tkanuya account 2'
+          GEELARK_GROUP: 'tkanuya account 3,tkanuya account 5'
           GEELARK_GROUP_RAW: 'true'
           SALON_REELS: '1539514777758470224'
           SALON_CLASSEMENT: '1539514911728861244'

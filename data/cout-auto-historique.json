@@ -710,30 +710,10 @@
       }
     },
     "2026-09-01": {
-      "auto": 77,
-      "autre": 52,
-      "posts": 22,
-      "comptes": {
-        "lexycxs": 3,
-        "lenamaddilnax": 4,
-        "leahsxsc": 4,
-        "leahhgdd": 5,
-        "keyshaverrylx": 4,
-        "leahcxs": 3,
-        "kendallmorryx": 3,
-        "junessxc": 5,
-        "kendallmarryx": 2,
-        "jaellesxr": 4,
-        "jaellesrx": 4,
-        "ivyrxss": 3,
-        "ivyndtt": 3,
-        "inayaamarchal": 4,
-        "chloerxsx": 6,
-        "arthurchapmamss": 5,
-        "ariassxrs": 9,
-        "coraricharsonns": 3,
-        "clarawinshester": 3
-      }
+      "auto": 0,
+      "autre": 26,
+      "posts": 0,
+      "comptes": {}
     },
     "2026-09-02": {
       "auto": 0,
@@ -742,5 +722,5 @@
       "comptes": {}
     }
   },
-  "maj": "2026-09-03T07:13:23.866Z"
+  "maj": "2026-09-04T07:16:13.193Z"
 }

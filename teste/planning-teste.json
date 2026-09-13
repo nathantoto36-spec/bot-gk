@@ -22,7 +22,6 @@
     "emilymp_ww": "emilymp.ww",
     "emilyml_f": "emilyml.f",
     "emilyml_dd": "emilyml.dd",
-    "kattyxecree": "kattyxecree",
     "alisskkeit": "alisskkeit",
     "emilymp_x": "emilymp.x",
     "katy_sofiar": "katy.sofiar",
@@ -50,7 +49,6 @@
     "emilymp_ww": "tkanuya account 2",
     "emilyml_f": "✔️tkanuya account",
     "emilyml_dd": "tkanuya account 2",
-    "kattyxecree": "✔️tkanuya account",
     "alisskkeit": "✔️tkanuya account",
     "emilymp_x": "tkanuya account 2",
     "katy_sofiar": "✔️tkanuya account",
@@ -930,53 +928,6 @@
         "epoch": 1787780640,
         "video": "teste4",
         "taskId": "634422792846049460"
-      }
-    ],
-    "kattyxecree": [
-      {
-        "epoch": 1787692200,
-        "video": "teste3",
-        "taskId": "634422659769172328"
-      },
-      {
-        "epoch": 1787701920,
-        "video": "teste4",
-        "taskId": "634422674533122228"
-      },
-      {
-        "epoch": 1787710920,
-        "video": "teste5",
-        "taskId": "634422688877642088"
-      },
-      {
-        "epoch": 1787729640,
-        "video": "teste1",
-        "taskId": "634422715284980072"
-      },
-      {
-        "epoch": 1787735280,
-        "video": "teste2",
-        "taskId": "634422726559269044"
-      },
-      {
-        "epoch": 1787748360,
-        "video": "teste4",
-        "taskId": "634422746205389160"
-      },
-      {
-        "epoch": 1787767080,
-        "video": "teste1",
-        "taskId": "634422774575661416"
-      },
-      {
-        "epoch": 1787768640,
-        "video": "teste5",
-        "taskId": "634422778400866711"
-      },
-      {
-        "epoch": 1787785800,
-        "video": "teste3",
-        "taskId": "634422800228024500"
       }
     ],
     "alisskkeit": [

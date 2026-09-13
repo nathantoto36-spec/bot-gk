@@ -14,7 +14,6 @@
     "nana_hzkk": "nana.hzkk",
     "iris_moola": "iris.moola",
     "lola_foler": "lola.foler",
-    "carlayhuys": "carlayhuys",
     "leaklml": "leaklml",
     "vickyschvkc": "vickyschvkc",
     "jennyejkrff": "jennyejkrff",
@@ -43,7 +42,6 @@
     "nana_hzkk": "✔️tkanuya account",
     "iris_moola": "tkanuya account 2",
     "lola_foler": "tkanuya account 2",
-    "carlayhuys": "✔️tkanuya account",
     "leaklml": "✔️tkanuya account",
     "vickyschvkc": "✔️tkanuya account",
     "jennyejkrff": "✔️tkanuya account",
@@ -596,53 +594,6 @@
         "epoch": 1787790240,
         "video": "teste2",
         "taskId": "634422806922133684"
-      }
-    ],
-    "carlayhuys": [
-      {
-        "epoch": 1787684760,
-        "video": "teste1",
-        "taskId": "634422646699721111"
-      },
-      {
-        "epoch": 1787701200,
-        "video": "teste2",
-        "taskId": "634422672670851479"
-      },
-      {
-        "epoch": 1787703480,
-        "video": "teste4",
-        "taskId": "634422678828089524"
-      },
-      {
-        "epoch": 1787722200,
-        "video": "teste3",
-        "taskId": "634422703524151703"
-      },
-      {
-        "epoch": 1787734560,
-        "video": "teste5",
-        "taskId": "634422725921735063"
-      },
-      {
-        "epoch": 1787740920,
-        "video": "teste2",
-        "taskId": "634422733538591080"
-      },
-      {
-        "epoch": 1787759640,
-        "video": "teste5",
-        "taskId": "634422759207731380"
-      },
-      {
-        "epoch": 1787767920,
-        "video": "teste1",
-        "taskId": "634422777176129896"
-      },
-      {
-        "epoch": 1787778360,
-        "video": "teste4",
-        "taskId": "634422788618191028"
       }
     ],
     "leaklml": [
